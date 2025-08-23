@@ -1,0 +1,199 @@
+package main
+
+import (
+	"log"
+	"net/http"
+	"os"
+	"path/filepath"
+	"phynixdrive/config"
+	"phynixdrive/routes"
+	"phynixdrive/services"
+	"time"
+
+	"github.com/gin-gonic/gin"
+	"github.com/joho/godotenv"
+	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/mongo/options"
+)
+
+func main() {
+	// Load .env file with proper path handling (do this BEFORE config.LoadConfig)
+	loadEnvFile()
+
+	// Initialize configuration
+	config.LoadConfig()
+	cfg := config.AppConfig
+
+	// Initialize MongoDB client
+	ctx, cancel := config.CreateContext(10 * time.Second)
+	defer cancel()
+
+	mongoClient, err := mongo.Connect(ctx, options.Client().ApplyURI(cfg.MongoURI))
+	if err != nil {
+		log.Fatalf("Failed to connect to MongoDB: %v", err)
+	}
+
+	// Create separate context for disconnection
+	defer func() {
+		disconnectCtx, disconnectCancel := config.CreateContext(5 * time.Second)
+		defer disconnectCancel()
+		if err = mongoClient.Disconnect(disconnectCtx); err != nil {
+			log.Printf("Failed to disconnect MongoDB: %v", err)
+		}
+	}()
+
+	// Verify MongoDB connection
+	if err = mongoClient.Ping(ctx, nil); err != nil {
+		log.Fatalf("Failed to ping MongoDB: %v", err)
+	}
+
+	log.Println("Connected to MongoDB successfully")
+
+	// Initialize Backblaze B2 service
+	b2Config := routes.B2Config{
+		KeyID:          cfg.B2ApplicationKeyID,
+		ApplicationKey: cfg.B2ApplicationKey,
+		BucketName:     cfg.B2BucketName,
+	}
+
+	googleConfig := routes.GoogleConfig{
+		ClientID:     cfg.GoogleClientID,     // or os.Getenv("GOOGLE_CLIENT_ID")
+		ClientSecret: cfg.GoogleClientSecret, // or os.Getenv("GOOGLE_CLIENT_SECRET")
+		RedirectURL:  cfg.GoogleRedirectURL,  // or os.Getenv("GOOGLE_REDIRECT_URL")
+	}
+
+	// Initialize services container
+	serviceContainer, err := routes.NewServiceContainer(
+		mongoClient.Database(cfg.DatabaseName),
+		cfg.JWTSecret,
+		b2Config,
+		googleConfig,
+	)
+	if err != nil {
+		log.Fatalf("Failed to initialize services: %v", err)
+	}
+
+	// Set up Gin router
+	router := gin.Default()
+
+	// Set up CORS with proper error handling
+	router.Use(corsMiddleware(cfg.AllowedOrigins))
+
+	// Set up API routes
+	api := router.Group("/api")
+	routes.SetupRoutesWithContainer(api, serviceContainer)
+
+	// Health check endpoint
+	router.GET("/health", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{
+			"status": "ok",
+			"time":   time.Now().UTC(),
+		})
+	})
+
+	// Start the cron job for trash cleanup
+	if cfg.TrashCleanupInterval > 0 {
+		trashService := services.NewTrashService(
+			mongoClient.Database(cfg.DatabaseName),
+			serviceContainer.B2Service,
+		)
+		services.StartTrashCleanupJob(trashService, cfg.TrashCleanupInterval)
+		log.Printf("Started trash cleanup job running every %v", cfg.TrashCleanupInterval)
+	}
+
+	// Start the server
+	log.Printf("Starting PhynixDrive server on port %s", cfg.Port)
+	if err := router.Run(":" + cfg.Port); err != nil {
+		log.Fatalf("Failed to start server: %v", err)
+	}
+}
+
+// loadEnvFile handles loading .env file from multiple possible locations
+func loadEnvFile() {
+	// Get current working directory
+	pwd, err := os.Getwd()
+	if err != nil {
+		log.Printf("Could not get working directory: %v", err)
+		return
+	}
+
+	log.Printf("Current working directory: %s", pwd)
+
+	// Define possible .env file locations
+	envPaths := []string{
+		".env",                                   // Current directory
+		"../.env",                                // Parent directory
+		"../../.env",                             // Grandparent directory
+		"cmd/../.env",                            // If running from cmd directory
+		filepath.Join(pwd, ".env"),               // Absolute path to current dir
+		filepath.Join(filepath.Dir(pwd), ".env"), // Absolute path to parent dir
+	}
+
+	loaded := false
+	for _, envPath := range envPaths {
+		absPath, _ := filepath.Abs(envPath)
+		log.Printf("Trying to load .env from: %s", absPath)
+
+		if _, err := os.Stat(envPath); err == nil {
+			if err := godotenv.Load(envPath); err == nil {
+				log.Printf("Successfully loaded environment variables from: %s", absPath)
+				loaded = true
+				break
+			} else {
+				log.Printf("Failed to load .env from %s: %v", absPath, err)
+			}
+		}
+	}
+
+	if !loaded {
+		log.Println("No .env file found in any expected location, using system environment variables")
+		log.Println("Expected locations checked:")
+		for _, path := range envPaths {
+			absPath, _ := filepath.Abs(path)
+			log.Printf("  - %s", absPath)
+		}
+	}
+
+	// Debug: Print some environment variables to verify loading
+	mongoURI := os.Getenv("MONGODB_URI")
+	if mongoURI == "" {
+		mongoURI = os.Getenv("MONGO_URI") // Check alternative name
+	}
+	log.Printf("MONGODB_URI/MONGO_URI set: %t", mongoURI != "")
+	log.Printf("JWT_SECRET set: %t", os.Getenv("JWT_SECRET") != "")
+	log.Printf("B2_APPLICATION_KEY_ID set: %t", os.Getenv("B2_APPLICATION_KEY_ID") != "")
+}
+
+// corsMiddleware creates CORS middleware with proper error handling
+func corsMiddleware(allowedOrigins []string) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		// Default allowed origin if none specified
+		origin := "*"
+		if len(allowedOrigins) > 0 {
+			// Use first allowed origin, or check if request origin is in allowed list
+			requestOrigin := c.Request.Header.Get("Origin")
+			if requestOrigin != "" {
+				for _, allowedOrigin := range allowedOrigins {
+					if allowedOrigin == requestOrigin || allowedOrigin == "*" {
+						origin = allowedOrigin
+						break
+					}
+				}
+			} else {
+				origin = allowedOrigins[0]
+			}
+		}
+
+		c.Writer.Header().Set("Access-Control-Allow-Origin", origin)
+		c.Writer.Header().Set("Access-Control-Allow-Credentials", "true")
+		c.Writer.Header().Set("Access-Control-Allow-Headers", "Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token, Authorization, accept, origin, Cache-Control, X-Requested-With")
+		c.Writer.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS, GET, PUT, PATCH, DELETE")
+
+		if c.Request.Method == "OPTIONS" {
+			c.AbortWithStatus(http.StatusNoContent)
+			return
+		}
+
+		c.Next()
+	}
+}
