@@ -56,11 +56,8 @@ func (tc *TrashCleaner) StartTrashCleaner() {
 	ticker := time.NewTicker(1 * time.Hour)
 	defer ticker.Stop()
 
-	for {
-		select {
-		case <-ticker.C:
-			tc.runCleanup()
-		}
+	for range ticker.C {
+		tc.runCleanup()
 	}
 
 }

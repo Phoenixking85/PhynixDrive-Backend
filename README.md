@@ -27,12 +27,14 @@ PhynixDrive is a **production-ready, distributed cloud storage backend** that co
 ## Features
 
 ### Authentication & Security
+
 - Google OAuth 2.0 integration with secure JWT tokens
 - Role-based permissions (Viewer, Editor, Admin)
 - Secure file access with time-limited download URLs
 - Comprehensive audit logging for all user actions
 
 ### File & Folder Management
+
 - Nested folder structure with unlimited depth
 - Drag-and-drop uploads with metadata preservation
 - Version control for file history tracking
@@ -40,12 +42,14 @@ PhynixDrive is a **production-ready, distributed cloud storage backend** that co
 - Bulk operations for efficient file management
 
 ### Collaboration & Sharing
+
 - Real-time collaboration with instant permission updates
 - Granular sharing controls per file and folder
 - Email notifications for sharing and updates
 - Permission inheritance from parent folders
 
 ### Advanced Features
+
 - Full-text search across filenames and folders
 - Prometheus metrics for monitoring and observability
 - Smart caching for improved performance
@@ -263,13 +267,13 @@ The application follows a clean layered architecture:
 1. **Client Request** → Auth Middleware validates JWT tokens
 2. **Auth Middleware** → Controllers handle HTTP requests  
 3. **Controllers** → Services contain business logic
-4. **Services** → Interact with MongoDB, Backblaze B2, and Email services
-5. **Response** → JSON data returned to client
-
-**External Integrations:**
 - Google OAuth for authentication
 - Backblaze B2 for file storage
 - SMTP for email notifications
+**External Integrations:**
+- Google OAuth for authentication
+- Backblaze B2 for file storage
+#### Users Collection
 
 ### Database Schema
 
@@ -285,7 +289,7 @@ The application follows a clean layered architecture:
   "updatedAt": "2024-01-01T00:00:00Z",
   "lastLogin": "2024-01-01T00:00:00Z",
   "storageUsed": 1073741824,
-  "storageQuota": 5368709120
+#### Files Collection
 }
 ```
 
@@ -320,7 +324,7 @@ The application follows a clean layered architecture:
   "isDeleted": false,
   "deletedAt": null,
   "createdAt": "2024-01-01T00:00:00Z",
-  "updatedAt": "2024-01-01T00:00:00Z"
+#### Folders Collection
 }
 ```
 
@@ -469,10 +473,6 @@ func TestFileUpload(t *testing.T) {
 1. **Server Requirements**
    - Linux server with Go 1.21+ installed
    - MongoDB database (local or cloud)
-   - SSL certificate for HTTPS
-   - Domain name configured
-
-2. **Build and Deploy**
    ```bash
    # Build for production
    CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o phynixdrive cmd/main.go
@@ -485,8 +485,8 @@ func TestFileUpload(t *testing.T) {
    chmod +x /opt/phynixdrive/phynixdrive
    nohup /opt/phynixdrive/phynixdrive &
    ```
-
-3. **Process Management**
+   # Run on server
+   chmod +x /opt/phynixdrive/phynixdrive
    ```bash
    # Using systemd (recommended)
    sudo nano /etc/systemd/system/phynixdrive.service
@@ -507,6 +507,10 @@ func TestFileUpload(t *testing.T) {
    [Install]
    WantedBy=multi-user.target
    
+   # Enable and start service
+   sudo systemctl enable phynixdrive
+   sudo systemctl start phynixdrive
+   ```
    # Enable and start service
    sudo systemctl enable phynixdrive
    sudo systemctl start phynixdrive
@@ -598,16 +602,16 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 - Go Community for amazing ecosystem
 - Contributors who make this project possible
 
----
-
-## Links
-
+- [Documentation](https://docs.phynixdrive.com)
+- [API Reference](https://api.phynixdrive.com/docs)
+- [Community](https://discord.gg/phynixdrive)
+- [Blog](https://blog.phynixdrive.com)
 - Documentation: https://docs.phynixdrive.com
 - API Reference: https://api.phynixdrive.com/docs
 - Community: https://discord.gg/phynixdrive
 - Blog: https://blog.phynixdrive.com
 
----
+Star us on GitHub • Follow us on Twitter • Join our Discord
 
 Made with love by the PhynixDrive Team
 

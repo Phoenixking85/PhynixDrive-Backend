@@ -70,7 +70,7 @@ func (s *FolderService) CreateFolder(name string, parentID *string, ownerID stri
 
 		// Check permissions if service is available
 		if s.permissionService != nil {
-			hasPermission, err := s.permissionService.HasFolderPermission(ownerID, *parentID, "editor")
+			hasPermission, err := s.permissionService.HasFolderPermission(context.Background(), ownerID, *parentID, "editor")
 			if err != nil {
 				return nil, fmt.Errorf("permission check failed: %w", err)
 			}
@@ -284,7 +284,7 @@ func (s *FolderService) GetFolderByID(folderID string, userID string) (*models.F
 
 	// Check permissions if service is available
 	if s.permissionService != nil {
-		hasPermission, err := s.permissionService.HasFolderPermission(userID, folderID, "viewer")
+		hasPermission, err := s.permissionService.HasFolderPermission(context.Background(), userID, folderID, "viewer")
 		if err != nil {
 			return nil, fmt.Errorf("permission check failed: %w", err)
 		}
@@ -304,7 +304,7 @@ func (s *FolderService) RenameFolder(folderID string, newName string, userID str
 
 	// Check permissions if service is available
 	if s.permissionService != nil {
-		hasPermission, err := s.permissionService.HasFolderPermission(userID, folderID, "editor")
+		hasPermission, err := s.permissionService.HasFolderPermission(context.Background(), userID, folderID, "editor")
 		if err != nil {
 			return fmt.Errorf("permission check failed: %w", err)
 		}
@@ -370,7 +370,8 @@ func (s *FolderService) DeleteFolder(folderID string, userID string) error {
 
 	// Check permissions if service is available
 	if s.permissionService != nil {
-		hasPermission, err := s.permissionService.HasFolderPermission(userID, folderID, "admin")
+
+		hasPermission, err := s.permissionService.HasFolderPermission(context.Background(), userID, folderID, "admin")
 		if err != nil {
 			return fmt.Errorf("permission check failed: %w", err)
 		}
@@ -417,7 +418,7 @@ func (s *FolderService) GetFilesInFolder(folderID string, userID string) ([]mode
 
 	// Check if folder exists and user has permission
 	if s.permissionService != nil {
-		hasPermission, err := s.permissionService.HasFolderPermission(userID, folderID, "viewer")
+		hasPermission, err := s.permissionService.HasFolderPermission(ctx, userID, folderID, "viewer")
 		if err != nil {
 			return nil, fmt.Errorf("permission check failed: %w", err)
 		}
@@ -449,7 +450,7 @@ func (s *FolderService) GetFilesInFolder(folderID string, userID string) ([]mode
 func (s *FolderService) ShareFolder(folderID string, userID string, email string, role string) error {
 	// Check if user has admin permissions on the folder
 	if s.permissionService != nil {
-		hasPermission, err := s.permissionService.HasFolderPermission(userID, folderID, "admin")
+		hasPermission, err := s.permissionService.HasFolderPermission(context.Background(), userID, folderID, "admin")
 		if err != nil {
 			return fmt.Errorf("permission check failed: %w", err)
 		}
@@ -468,7 +469,7 @@ func (s *FolderService) ShareFolder(folderID string, userID string, email string
 		}
 
 		// Add permission for the shared user
-		err = s.permissionService.ShareFolder(folderID, targetUser.ID.Hex(), role, userID)
+		err = s.permissionService.ShareFolder(ctx, folderID, targetUser.ID.Hex(), role, userID)
 		if err != nil {
 			return fmt.Errorf("failed to add folder permission: %w", err)
 		}
@@ -491,7 +492,7 @@ func (s *FolderService) GetFolderPermissions(folderID string, userID string) ([]
 func (s *FolderService) DeleteFileFromFolder(folderID string, fileID string, userID string) error {
 	// Check if user has permission to modify the folder
 	if s.permissionService != nil {
-		hasPermission, err := s.permissionService.HasFolderPermission(userID, folderID, "editor")
+		hasPermission, err := s.permissionService.HasFolderPermission(context.Background(), userID, folderID, "editor")
 		if err != nil {
 			return fmt.Errorf("permission check failed: %w", err)
 		}
@@ -547,7 +548,7 @@ func (s *FolderService) DownloadFolder(ctx context.Context, w http.ResponseWrite
 	}
 
 	if s.permissionService != nil {
-		hasPermission, err := s.permissionService.HasFolderPermission(userID, folderID, "viewer")
+		hasPermission, err := s.permissionService.HasFolderPermission(context.Background(), userID, folderID, "viewer")
 		if err != nil {
 			return fmt.Errorf("permission check failed: %w", err)
 		}

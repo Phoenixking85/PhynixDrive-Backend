@@ -207,7 +207,7 @@ func (s *FileService) GetFilesByFolder(folderID *string, userID string) ([]model
 	if folderID != nil && *folderID != "" {
 		// Check folder permissions if service is available
 		if s.permissionService != nil {
-			hasPermission, err := s.permissionService.HasFolderPermission(userID, *folderID, "viewer")
+			hasPermission, err := s.permissionService.HasFolderPermission(ctx, userID, *folderID, "viewer")
 			if err != nil {
 				return nil, fmt.Errorf("permission check failed: %w", err)
 			}
@@ -261,7 +261,7 @@ func (s *FileService) GetFileByID(fileID string, userID string) (*models.File, e
 
 	// Check permissions if service is available
 	if s.permissionService != nil {
-		hasPermission, err := s.permissionService.HasFilePermission(userID, fileID, "viewer")
+		hasPermission, err := s.permissionService.HasFilePermission(ctx, userID, fileID, "viewer")
 		if err != nil {
 			return nil, fmt.Errorf("permission check failed: %w", err)
 		}
@@ -340,8 +340,9 @@ func (s *FileService) DeleteFile(fileID string, userID string) error {
 	}
 
 	// Check permissions if service is available
+	ctx := context.Background()
 	if s.permissionService != nil {
-		hasPermission, err := s.permissionService.HasFilePermission(userID, fileID, "admin")
+		hasPermission, err := s.permissionService.HasFilePermission(ctx, userID, fileID, "admin")
 		if err != nil {
 			return fmt.Errorf("permission check failed: %w", err)
 		}
@@ -349,8 +350,6 @@ func (s *FileService) DeleteFile(fileID string, userID string) error {
 			return fmt.Errorf("insufficient permissions")
 		}
 	}
-
-	ctx := context.Background()
 
 	// Get file info before deletion
 	var file models.File
