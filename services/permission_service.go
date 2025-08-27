@@ -1,4 +1,3 @@
-// Improved Permission Service
 package services
 
 import (
