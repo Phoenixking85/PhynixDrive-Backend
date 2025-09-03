@@ -17,12 +17,61 @@ import (
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
+// FileInfo represents file information with preview/download endpoints
+type FileInfo struct {
+	ID               primitive.ObjectID `json:"id"`
+	Name             string             `json:"name"`
+	Type             string             `json:"type"` // Always "file"
+	MimeType         string             `json:"mime_type"`
+	Size             int64              `json:"size"`
+	CreatedAt        time.Time          `json:"created_at"`
+	PreviewEndpoint  string             `json:"preview_endpoint"`
+	DownloadEndpoint string             `json:"download_endpoint"`
+}
+
+// FolderContentsResponse represents the response for GetFolderContents
+type FolderContentsResponse struct {
+	Folder     FolderInfo      `json:"folder"`
+	Subfolders []SubfolderInfo `json:"subfolders"`
+	Files      []FileInfo      `json:"files"` // Changed from []models.File to []FileInfo
+	Counts     ContentCounts   `json:"counts"`
+}
+
+type FolderInfo struct {
+	ID       primitive.ObjectID `json:"id"`
+	Name     string             `json:"name"`
+	Type     string             `json:"type"` // Always "folder"
+	Path     string             `json:"path"`
+	CanEdit  bool               `json:"can_edit"`
+	CanShare bool               `json:"can_share"`
+}
+
+type SubfolderInfo struct {
+	ID        primitive.ObjectID `json:"id"`
+	Name      string             `json:"name"`
+	Type      string             `json:"type"` // Always "folder"
+	Path      string             `json:"path"`
+	FileCount int                `json:"file_count"`
+	CreatedAt time.Time          `json:"created_at"`
+}
+
+type ContentCounts struct {
+	Subfolders int `json:"subfolders"`
+	Files      int `json:"files"`
+}
+
+type ShareResponse struct {
+	SharedWith       string `json:"shared_with"`
+	Role             string `json:"role"`
+	ChildrenAffected int    `json:"children_affected"`
+}
+
 type FolderService struct {
 	folderCollection  *mongo.Collection
 	fileCollection    *mongo.Collection
 	userCollection    *mongo.Collection
 	permissionService *PermissionService
-	b2Service         *B2Service // Add B2Service dependency
+	b2Service         *B2Service
 	httpClient        *http.Client
 }
 
@@ -32,11 +81,265 @@ func NewFolderService(db *mongo.Database, permissionService *PermissionService, 
 		fileCollection:    db.Collection("files"),
 		userCollection:    db.Collection("users"),
 		permissionService: permissionService,
-		b2Service:         b2Service, // Initialize B2Service
+		b2Service:         b2Service,
 		httpClient:        &http.Client{Timeout: 30 * time.Second},
 	}
 }
 
+// GetFolderContents retrieves folder contents in Google Drive style (subfolders + files in single view)
+func (s *FolderService) GetFolderContents(folderID, userID string) (*FolderContentsResponse, error) {
+	ctx := context.Background()
+
+	// Validate folder ID
+	folderObjID, err := primitive.ObjectIDFromHex(folderID)
+	if err != nil {
+		return nil, fmt.Errorf("invalid folder ID: %w", err)
+	}
+
+	// Check permissions - viewer level minimum
+	if s.permissionService != nil {
+		hasPermission, err := s.permissionService.HasFolderPermission(ctx, userID, folderID, "viewer")
+		if err != nil {
+			return nil, fmt.Errorf("permission check failed: %w", err)
+		}
+		if !hasPermission {
+			return nil, fmt.Errorf("insufficient permissions")
+		}
+	}
+
+	// Get folder metadata
+	var folder models.Folder
+	err = s.folderCollection.FindOne(ctx, bson.M{
+		"_id":        folderObjID,
+		"is_deleted": false,
+	}).Decode(&folder)
+
+	if err == mongo.ErrNoDocuments {
+		return nil, fmt.Errorf("folder not found")
+	} else if err != nil {
+		return nil, fmt.Errorf("database error: %w", err)
+	}
+
+	// Determine user permissions for this folder
+	canEdit := false
+	canShare := false
+	if s.permissionService != nil {
+		canEdit, _ = s.permissionService.HasFolderPermission(ctx, userID, folderID, "editor")
+		canShare, _ = s.permissionService.HasFolderPermission(ctx, userID, folderID, "admin")
+	}
+
+	// Get direct child subfolders
+	subfolders, err := s.getSubfoldersWithCounts(ctx, folderObjID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get subfolders: %w", err)
+	}
+
+	// Get files in folder with preview/download endpoints
+	files, err := s.getFilesWithEndpoints(ctx, folderObjID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get files: %w", err)
+	}
+
+	// Build response
+	response := &FolderContentsResponse{
+		Folder: FolderInfo{
+			ID:       folder.ID,
+			Name:     folder.Name,
+			Type:     "folder",
+			Path:     folder.Path,
+			CanEdit:  canEdit,
+			CanShare: canShare,
+		},
+		Subfolders: subfolders,
+		Files:      files,
+		Counts: ContentCounts{
+			Subfolders: len(subfolders),
+			Files:      len(files),
+		},
+	}
+
+	return response, nil
+}
+
+// getSubfoldersWithCounts gets direct child subfolders with file counts
+func (s *FolderService) getSubfoldersWithCounts(ctx context.Context, parentID primitive.ObjectID) ([]SubfolderInfo, error) {
+	// Get subfolders
+	cursor, err := s.folderCollection.Find(ctx, bson.M{
+		"parent_id":  parentID,
+		"is_deleted": false,
+	}, options.Find().SetSort(bson.M{"name": 1}))
+
+	if err != nil {
+		return nil, err
+	}
+	defer cursor.Close(ctx)
+
+	var subfolders []SubfolderInfo
+	for cursor.Next(ctx) {
+		var folder models.Folder
+		if err := cursor.Decode(&folder); err != nil {
+			continue
+		}
+
+		// Count files in this subfolder
+		fileCount, err := s.fileCollection.CountDocuments(ctx, bson.M{
+			"folder_id":  folder.ID,
+			"deleted_at": nil,
+		})
+		if err != nil {
+			fileCount = 0 // Continue with 0 count on error
+		}
+
+		subfolders = append(subfolders, SubfolderInfo{
+			ID:        folder.ID,
+			Name:      folder.Name,
+			Type:      "folder",
+			Path:      folder.Path,
+			FileCount: int(fileCount),
+			CreatedAt: folder.CreatedAt,
+		})
+	}
+
+	return subfolders, nil
+}
+
+// getFilesWithEndpoints gets files in folder with preview/download endpoints (not permanent URLs)
+func (s *FolderService) getFilesWithEndpoints(ctx context.Context, folderID primitive.ObjectID) ([]FileInfo, error) {
+	cursor, err := s.fileCollection.Find(ctx, bson.M{
+		"folder_id":  folderID,
+		"deleted_at": nil,
+	}, options.Find().SetSort(bson.M{"name": 1}))
+
+	if err != nil {
+		return nil, err
+	}
+	defer cursor.Close(ctx)
+
+	var files []FileInfo
+	for cursor.Next(ctx) {
+		var file models.File
+		if err := cursor.Decode(&file); err != nil {
+			continue
+		}
+
+		// Convert models.File to FileInfo with endpoints
+		fileInfo := FileInfo{
+			ID:               file.ID,
+			Name:             file.Name,
+			Type:             "file",
+			MimeType:         file.MimeType,
+			Size:             file.Size,
+			CreatedAt:        file.CreatedAt,
+			PreviewEndpoint:  fmt.Sprintf("/api/files/%s/preview", file.ID.Hex()),
+			DownloadEndpoint: fmt.Sprintf("/api/files/%s/download", file.ID.Hex()),
+		}
+
+		files = append(files, fileInfo)
+	}
+
+	return files, nil
+}
+
+// ShareFolderWithInheritance shares folder with permission inheritance to child folders
+func (s *FolderService) ShareFolderWithInheritance(folderID, userID, email, role string, inheritToChildren bool) (*ShareResponse, error) {
+	ctx := context.Background()
+
+	// Validate user has admin permissions on folder
+	if s.permissionService != nil {
+		hasPermission, err := s.permissionService.HasFolderPermission(ctx, userID, folderID, "admin")
+		if err != nil {
+			return nil, fmt.Errorf("permission check failed: %w", err)
+		}
+		if !hasPermission {
+			return nil, fmt.Errorf("insufficient permissions to share folder")
+		}
+	}
+
+	// Find target user by email
+	var targetUser models.User
+	err := s.userCollection.FindOne(ctx, bson.M{"email": email}).Decode(&targetUser)
+	if err == mongo.ErrNoDocuments {
+		return nil, fmt.Errorf("user with email %s not found", email)
+	} else if err != nil {
+		return nil, fmt.Errorf("database error: %w", err)
+	}
+
+	// Share parent folder
+	if s.permissionService != nil {
+		err = s.permissionService.ShareFolder(ctx, folderID, targetUser.ID.Hex(), role, userID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to share folder: %w", err)
+		}
+	}
+
+	childrenAffected := 0
+
+	// If inherit_to_children=true, recursively share all child folders
+	if inheritToChildren {
+		folderObjID, err := primitive.ObjectIDFromHex(folderID)
+		if err != nil {
+			return nil, fmt.Errorf("invalid folder ID: %w", err)
+		}
+
+		affected, err := s.shareChildFoldersRecursively(ctx, folderObjID, targetUser.ID.Hex(), role, userID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to share child folders: %w", err)
+		}
+		childrenAffected = affected
+	}
+
+	response := &ShareResponse{
+		SharedWith:       email,
+		Role:             role,
+		ChildrenAffected: childrenAffected,
+	}
+
+	return response, nil
+}
+
+// shareChildFoldersRecursively recursively shares all child folders
+func (s *FolderService) shareChildFoldersRecursively(ctx context.Context, parentID primitive.ObjectID, targetUserID, role, sharerID string) (int, error) {
+	// Get all child folders
+	cursor, err := s.folderCollection.Find(ctx, bson.M{
+		"parent_id":  parentID,
+		"is_deleted": false,
+	})
+	if err != nil {
+		return 0, err
+	}
+	defer cursor.Close(ctx)
+
+	affected := 0
+	for cursor.Next(ctx) {
+		var childFolder models.Folder
+		if err := cursor.Decode(&childFolder); err != nil {
+			continue
+		}
+
+		// Share this child folder
+		if s.permissionService != nil {
+			err = s.permissionService.ShareFolder(ctx, childFolder.ID.Hex(), targetUserID, role, sharerID)
+			if err != nil {
+				// Log error but continue with other folders
+				fmt.Printf("Warning: failed to share child folder %s: %v\n", childFolder.Name, err)
+				continue
+			}
+			affected++
+		}
+
+		// Recursively share grandchildren
+		grandchildrenAffected, err := s.shareChildFoldersRecursively(ctx, childFolder.ID, targetUserID, role, sharerID)
+		if err != nil {
+			// Log error but continue
+			fmt.Printf("Warning: failed to share grandchildren of folder %s: %v\n", childFolder.Name, err)
+		}
+		affected += grandchildrenAffected
+	}
+
+	return affected, nil
+}
+
+// CreateFolder creates a new folder
 func (s *FolderService) CreateFolder(name string, parentID *string, ownerID string) (*models.Folder, error) {
 	ctx := context.Background()
 
@@ -362,16 +665,15 @@ func (s *FolderService) RenameFolder(folderID string, newName string, userID str
 	return nil
 }
 
-func (s *FolderService) DeleteFolder(folderID string, userID string) error {
+func (s *FolderService) DeleteFolder(ctx context.Context, folderID string, userID string) error {
 	objID, err := primitive.ObjectIDFromHex(folderID)
 	if err != nil {
 		return fmt.Errorf("invalid folder ID: %w", err)
 	}
 
-	// Check permissions if service is available
+	// --- Permission check ---
 	if s.permissionService != nil {
-
-		hasPermission, err := s.permissionService.HasFolderPermission(context.Background(), userID, folderID, "admin")
+		hasPermission, err := s.permissionService.HasFolderPermission(ctx, userID, folderID, "admin")
 		if err != nil {
 			return fmt.Errorf("permission check failed: %w", err)
 		}
@@ -380,31 +682,142 @@ func (s *FolderService) DeleteFolder(folderID string, userID string) error {
 		}
 	}
 
-	ctx := context.Background()
+	// --- Check if folder exists and is not already deleted ---
+	var folder models.Folder
+	err = s.folderCollection.FindOne(ctx, bson.M{
+		"_id":        objID,
+		"is_deleted": false,
+	}).Decode(&folder)
+	if err != nil {
+		if err == mongo.ErrNoDocuments {
+			return fmt.Errorf("folder not found or already deleted")
+		}
+		return fmt.Errorf("failed to find folder: %w", err)
+	}
+
 	now := time.Now()
 
-	update := bson.M{
+	// --- Use transaction for atomicity ---
+	callback := func(sessCtx mongo.SessionContext) (interface{}, error) {
+		// Mark the main folder as deleted
+		update := bson.M{
+			"$set": bson.M{
+				"is_deleted": true,
+				"deleted_at": now,
+				"updated_at": now,
+			},
+		}
+
+		result, err := s.folderCollection.UpdateOne(sessCtx, bson.M{
+			"_id":        objID,
+			"is_deleted": false,
+		}, update)
+		if err != nil {
+			return nil, fmt.Errorf("failed to delete folder: %w", err)
+		}
+		if result.MatchedCount == 0 {
+			return nil, fmt.Errorf("folder not found or already deleted")
+		}
+
+		// Cascade soft-delete subfolders recursively
+		if err := s.softDeleteSubfolders(sessCtx, objID, now); err != nil {
+			return nil, fmt.Errorf("failed to delete subfolders: %w", err)
+		}
+
+		// Soft-delete all files in this folder and subfolders
+		if err := s.softDeleteFiles(sessCtx, objID, now); err != nil {
+			return nil, fmt.Errorf("failed to delete files: %w", err)
+		}
+
+		return nil, nil
+	}
+
+	session, err := s.folderCollection.Database().Client().StartSession()
+	if err != nil {
+		return fmt.Errorf("failed to start session: %w", err)
+	}
+	defer session.EndSession(ctx)
+
+	_, err = session.WithTransaction(ctx, callback)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// Recursively soft-delete subfolders
+func (s *FolderService) softDeleteSubfolders(ctx context.Context, parentID primitive.ObjectID, now time.Time) error {
+	// Use bulk operations for better performance
+	var bulkOps []mongo.WriteModel
+
+	cursor, err := s.folderCollection.Find(ctx, bson.M{
+		"parent_id":  parentID,
+		"is_deleted": false,
+	})
+	if err != nil {
+		return err
+	}
+	defer cursor.Close(ctx)
+
+	var subfolderIDs []primitive.ObjectID
+	for cursor.Next(ctx) {
+		var subFolder models.Folder
+		if err := cursor.Decode(&subFolder); err != nil {
+			return err
+		}
+
+		subfolderIDs = append(subfolderIDs, subFolder.ID)
+
+		// Prepare bulk update operation
+		updateModel := mongo.NewUpdateOneModel().
+			SetFilter(bson.M{"_id": subFolder.ID}).
+			SetUpdate(bson.M{"$set": bson.M{
+				"is_deleted": true,
+				"deleted_at": now,
+				"updated_at": now,
+			}})
+		bulkOps = append(bulkOps, updateModel)
+	}
+
+	if err := cursor.Err(); err != nil {
+		return err
+	}
+
+	// Execute bulk operations
+	if len(bulkOps) > 0 {
+		_, err := s.folderCollection.BulkWrite(ctx, bulkOps)
+		if err != nil {
+			return err
+		}
+
+		// Recursively process subfolders
+		for _, subfolderID := range subfolderIDs {
+			if err := s.softDeleteSubfolders(ctx, subfolderID, now); err != nil {
+				return err
+			}
+			if err := s.softDeleteFiles(ctx, subfolderID, now); err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
+}
+
+// Soft-delete all files inside a folder
+func (s *FolderService) softDeleteFiles(ctx context.Context, folderID primitive.ObjectID, now time.Time) error {
+	_, err := s.fileCollection.UpdateMany(ctx, bson.M{
+		"folder_id":  folderID,
+		"is_deleted": false,
+	}, bson.M{
 		"$set": bson.M{
 			"is_deleted": true,
 			"deleted_at": now,
 			"updated_at": now,
 		},
-	}
-
-	result, err := s.folderCollection.UpdateOne(ctx, bson.M{
-		"_id":        objID,
-		"is_deleted": false,
-	}, update)
-
-	if err != nil {
-		return fmt.Errorf("failed to delete folder: %w", err)
-	}
-
-	if result.MatchedCount == 0 {
-		return fmt.Errorf("folder not found")
-	}
-
-	return nil
+	})
+	return err
 }
 
 func (s *FolderService) GetFilesInFolder(folderID string, userID string) ([]models.File, error) {

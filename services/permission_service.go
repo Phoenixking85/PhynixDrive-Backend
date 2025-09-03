@@ -55,10 +55,11 @@ func (s *PermissionService) HasResourcePermission(ctx context.Context, userID, r
 		"deleted_at": nil,
 	}).Decode(&folder)
 
-	if err == nil {
+	switch err {
+	case nil:
 		// It's a folder
 		return s.hasFolderPermissionInternal(ctx, userID, resourceID, requiredRole, &folder)
-	} else if err == mongo.ErrNoDocuments {
+	case mongo.ErrNoDocuments:
 		return false, fmt.Errorf("resource not found")
 	}
 

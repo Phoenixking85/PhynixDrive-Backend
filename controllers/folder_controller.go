@@ -13,13 +13,13 @@ import (
 
 type FolderController struct {
 	folderService *services.FolderService
-	b2Service     services.B2Service
+	b2Service     *services.B2Service // Changed to pointer to match service signature
 }
 
-func NewFolderController(folderService *services.FolderService, b2Service services.B2Service) *FolderController {
+func NewFolderController(folderService *services.FolderService, b2Service *services.B2Service) *FolderController {
 	return &FolderController{
 		folderService: folderService,
-		b2Service:     b2Service, // Initialize B2Service properly
+		b2Service:     b2Service, // No dereference needed now
 	}
 }
 
@@ -65,15 +65,12 @@ func (fc *FolderController) handleError(c *gin.Context, err error, defaultMessag
 		statusCode = http.StatusNotFound
 		message = "File not found in folder"
 	default:
-		// Check for specific patterns
-		if fmt.Sprintf("folder with name '%s' already exists", "") != err.Error() {
-			// Extract folder name from error if it matches pattern
-			if len(err.Error()) > 25 && err.Error()[:19] == "folder with name '" {
-				statusCode = http.StatusConflict
-				message = "Folder with this name already exists"
-			}
-		}
-		if len(err.Error()) > 17 && err.Error()[:17] == "user with email " {
+		// Check for specific error patterns
+		errorStr := err.Error()
+		if len(errorStr) > 25 && errorStr[:19] == "folder with name '" && errorStr[len(errorStr)-15:] == "already exists" {
+			statusCode = http.StatusConflict
+			message = "Folder with this name already exists"
+		} else if len(errorStr) > 17 && errorStr[:17] == "user with email " {
 			statusCode = http.StatusNotFound
 			message = "User not found"
 		}
@@ -132,7 +129,12 @@ func (fc *FolderController) CreateFolder(c *gin.Context) {
 	c.JSON(http.StatusCreated, gin.H{
 		"success": true,
 		"message": "Folder created successfully",
-		"data":    folder,
+		"data": gin.H{
+			"id":         folder.ID,
+			"name":       folder.Name,
+			"path":       folder.Path,
+			"created_at": folder.CreatedAt,
+		},
 	})
 }
 
@@ -153,11 +155,64 @@ func (fc *FolderController) ListRootFolders(c *gin.Context) {
 		return
 	}
 
+	// Transform data to match API specification
+	var folderData []gin.H
+	for _, folder := range folders {
+		// Get file count using the service method
+		files, fileErr := fc.folderService.GetFilesInFolder(folder.ID.Hex(), userIDStr)
+		fileCount := 0
+		if fileErr == nil {
+			fileCount = len(files)
+		}
+
+		// You could add subfolder count logic here if needed
+		subfolderCount := 0
+
+		folderData = append(folderData, gin.H{
+			"id":              folder.ID,
+			"name":            folder.Name,
+			"type":            "folder",
+			"file_count":      fileCount,
+			"subfolder_count": subfolderCount,
+			"created_at":      folder.CreatedAt,
+		})
+	}
+
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
-		"message": "Folders retrieved successfully",
-		"data":    folders,
-		"count":   len(folders),
+		"data":    folderData,
+	})
+}
+
+// GetFolderContents retrieves folder contents in Google Drive style (subfolders + files)
+func (fc *FolderController) GetFolderContents(c *gin.Context) {
+	userIDStr, err := fc.getUserID(c)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{
+			"success": false,
+			"message": err.Error(),
+		})
+		return
+	}
+
+	folderID := c.Param("id")
+	if !primitive.IsValidObjectID(folderID) {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"message": "Invalid folder ID format",
+		})
+		return
+	}
+
+	contents, err := fc.folderService.GetFolderContents(folderID, userIDStr)
+	if err != nil {
+		fc.handleError(c, err, "Failed to retrieve folder contents", http.StatusInternalServerError)
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data":    contents,
 	})
 }
 
@@ -259,7 +314,7 @@ func (fc *FolderController) DeleteFolder(c *gin.Context) {
 		return
 	}
 
-	err = fc.folderService.DeleteFolder(folderID, userIDStr)
+	err = fc.folderService.DeleteFolder(c.Request.Context(), folderID, userIDStr)
 	if err != nil {
 		fc.handleError(c, err, "Failed to delete folder", http.StatusInternalServerError)
 		return
@@ -271,7 +326,7 @@ func (fc *FolderController) DeleteFolder(c *gin.Context) {
 	})
 }
 
-// ShareFolder shares a folder with another user
+// ShareFolder shares a folder with another user with inheritance option
 func (fc *FolderController) ShareFolder(c *gin.Context) {
 	userIDStr, err := fc.getUserID(c)
 	if err != nil {
@@ -292,8 +347,9 @@ func (fc *FolderController) ShareFolder(c *gin.Context) {
 	}
 
 	var req struct {
-		Email string `json:"email" binding:"required,email"`
-		Role  string `json:"role" binding:"required,oneof=viewer editor admin"`
+		Email             string `json:"email" binding:"required,email"`
+		Role              string `json:"role" binding:"required,oneof=viewer editor admin"`
+		InheritToChildren bool   `json:"inherit_to_children,omitempty"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -305,7 +361,8 @@ func (fc *FolderController) ShareFolder(c *gin.Context) {
 		return
 	}
 
-	err = fc.folderService.ShareFolder(folderID, userIDStr, req.Email, req.Role)
+	// Use ShareFolderWithInheritance method
+	response, err := fc.folderService.ShareFolderWithInheritance(folderID, userIDStr, req.Email, req.Role, req.InheritToChildren)
 	if err != nil {
 		fc.handleError(c, err, "Failed to share folder", http.StatusInternalServerError)
 		return
@@ -314,6 +371,7 @@ func (fc *FolderController) ShareFolder(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"message": "Folder shared successfully",
+		"data":    response,
 	})
 }
 
@@ -426,7 +484,6 @@ func (fc *FolderController) DeleteFileFromFolder(c *gin.Context) {
 	})
 }
 
-// DownloadFolder creates a ZIP of the folder, uploads it to B2, and returns a signed URL
 // DownloadFolder streams the folder contents as ZIP directly to the client
 func (fc *FolderController) DownloadFolder(c *gin.Context) {
 	userIDStr, err := fc.getUserID(c)
@@ -447,13 +504,6 @@ func (fc *FolderController) DownloadFolder(c *gin.Context) {
 		return
 	}
 
-	// Get folder info (also checks ownership/permissions)
-	folder, err := fc.folderService.GetFolderByID(folderID, userIDStr)
-	if err != nil {
-		fc.handleError(c, err, "Folder not found", http.StatusNotFound)
-		return
-	}
-
 	// Set longer timeout for large folder downloads
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 30*time.Minute)
 	defer cancel()
@@ -461,9 +511,13 @@ func (fc *FolderController) DownloadFolder(c *gin.Context) {
 	// Stream folder as ZIP directly to response (memory efficient)
 	err = fc.folderService.DownloadFolder(ctx, c.Writer, folderID, userIDStr)
 	if err != nil {
-		// If streaming has started, we can't change the response to JSON
-		// Log the error but don't try to send JSON response
-		fmt.Printf("Error streaming folder zip for folder %s: %v\n", folder.Name, err)
+		// Check if we haven't started writing to the response yet
+		if !c.Writer.Written() {
+			fc.handleError(c, err, "Failed to download folder", http.StatusInternalServerError)
+		} else {
+			// If streaming has started, we can only log the error
+			fmt.Printf("Error streaming folder zip for folder %s: %v\n", folderID, err)
+		}
 		return
 	}
 }
