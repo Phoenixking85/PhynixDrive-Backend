@@ -24,6 +24,15 @@ func main() {
 	config.LoadConfig()
 	cfg := config.AppConfig
 
+	// Add CORS debug logging
+	log.Printf("=== CORS Configuration Debug ===")
+	log.Printf("AllowedOrigins: %v", cfg.AllowedOrigins)
+	log.Printf("AllowedOrigins length: %d", len(cfg.AllowedOrigins))
+	for i, origin := range cfg.AllowedOrigins {
+		log.Printf("  [%d]: '%s'", i, origin)
+	}
+	log.Printf("=== End CORS Debug ===")
+
 	// Initialize MongoDB client
 	ctx, cancel := config.CreateContext(10 * time.Second)
 	defer cancel()
@@ -57,9 +66,9 @@ func main() {
 	}
 
 	googleConfig := routes.GoogleConfig{
-		ClientID:     cfg.GoogleClientID,     // or os.Getenv("GOOGLE_CLIENT_ID")
-		ClientSecret: cfg.GoogleClientSecret, // or os.Getenv("GOOGLE_CLIENT_SECRET")
-		RedirectURL:  cfg.GoogleRedirectURL,  // or os.Getenv("GOOGLE_REDIRECT_URL")
+		ClientID:     cfg.GoogleClientID,
+		ClientSecret: cfg.GoogleClientSecret,
+		RedirectURL:  cfg.GoogleRedirectURL,
 	}
 
 	// Initialize services container
@@ -76,7 +85,7 @@ func main() {
 	// Set up Gin router
 	router := gin.Default()
 
-	// Set up CORS with proper error handling
+	// Set up CORS with fixed middleware
 	router.Use(corsMiddleware(cfg.AllowedOrigins))
 
 	// Set up API routes
@@ -162,34 +171,69 @@ func loadEnvFile() {
 	log.Printf("MONGODB_URI/MONGO_URI set: %t", mongoURI != "")
 	log.Printf("JWT_SECRET set: %t", os.Getenv("JWT_SECRET") != "")
 	log.Printf("B2_APPLICATION_KEY_ID set: %t", os.Getenv("B2_APPLICATION_KEY_ID") != "")
+	log.Printf("ALLOWED_ORIGINS set: %t", os.Getenv("ALLOWED_ORIGINS") != "")
+	log.Printf("ALLOWED_ORIGINS value: '%s'", os.Getenv("ALLOWED_ORIGINS"))
 }
 
-// corsMiddleware creates CORS middleware with proper error handling
+// Fixed CORS middleware
 func corsMiddleware(allowedOrigins []string) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		// Default allowed origin if none specified
-		origin := "*"
-		if len(allowedOrigins) > 0 {
-			// Use first allowed origin, or check if request origin is in allowed list
-			requestOrigin := c.Request.Header.Get("Origin")
-			if requestOrigin != "" {
-				for _, allowedOrigin := range allowedOrigins {
-					if allowedOrigin == requestOrigin || allowedOrigin == "*" {
-						origin = allowedOrigin
-						break
-					}
+		requestOrigin := c.Request.Header.Get("Origin")
+
+		// Debug logging
+		log.Printf("CORS Request - Origin: '%s', Method: %s, Path: %s", requestOrigin, c.Request.Method, c.Request.URL.Path)
+		log.Printf("CORS - Allowed Origins: %v", allowedOrigins)
+
+		var allowOrigin string
+
+		// If no allowed origins specified, allow all
+		if len(allowedOrigins) == 0 {
+			log.Printf("CORS - No allowed origins specified, allowing all")
+			allowOrigin = "*"
+		} else {
+			// Check if request origin is in allowed list
+			found := false
+			for _, allowedOrigin := range allowedOrigins {
+				if allowedOrigin == "*" {
+					allowOrigin = "*"
+					found = true
+					log.Printf("CORS - Wildcard found, allowing all")
+					break
+				} else if allowedOrigin == requestOrigin {
+					allowOrigin = requestOrigin
+					found = true
+					log.Printf("CORS - Origin '%s' found in allowed list", requestOrigin)
+					break
 				}
-			} else {
-				origin = allowedOrigins[0]
+			}
+
+			// If origin not found in allowed list
+			if !found {
+				if requestOrigin == "" {
+					// No origin header (like from Postman), use first allowed
+					allowOrigin = allowedOrigins[0]
+					log.Printf("CORS - No origin header, using first allowed: %s", allowOrigin)
+				} else {
+					// For now, allow the requesting origin (you can change this for production)
+					allowOrigin = requestOrigin
+					log.Printf("CORS - Origin '%s' not in allowed list, but allowing for debugging", requestOrigin)
+					// To deny: allowOrigin = "null" // This will cause CORS to fail
+				}
 			}
 		}
 
-		c.Writer.Header().Set("Access-Control-Allow-Origin", origin)
+		log.Printf("CORS - Setting Access-Control-Allow-Origin to: %s", allowOrigin)
+
+		// Set CORS headers
+		c.Writer.Header().Set("Access-Control-Allow-Origin", allowOrigin)
 		c.Writer.Header().Set("Access-Control-Allow-Credentials", "true")
 		c.Writer.Header().Set("Access-Control-Allow-Headers", "Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token, Authorization, accept, origin, Cache-Control, X-Requested-With")
 		c.Writer.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS, GET, PUT, PATCH, DELETE")
+		c.Writer.Header().Set("Access-Control-Max-Age", "86400") // Cache preflight for 24 hours
 
+		// Handle preflight requests
 		if c.Request.Method == "OPTIONS" {
+			log.Printf("CORS - Handling OPTIONS preflight request")
 			c.AbortWithStatus(http.StatusNoContent)
 			return
 		}
