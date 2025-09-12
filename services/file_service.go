@@ -185,11 +185,6 @@ func (s *FileService) GetRootFiles(userID string) ([]models.File, error) {
 	return s.GetFilesByFolder(nil, userID)
 }
 
-// GetFolderFiles gets files in a specific folder
-func (s *FileService) GetFolderFiles(folderID string, userID string) ([]models.File, error) {
-	return s.GetFilesByFolder(&folderID, userID)
-}
-
 // GetFilesByFolder gets files by folder ID (internal method)
 func (s *FileService) GetFilesByFolder(folderID *string, userID string) ([]models.File, error) {
 	ctx := context.Background()
@@ -312,27 +307,6 @@ func (s *FileService) GetPreviewURL(fileID string, userID string) (string, error
 	return url, nil
 }
 
-// GetFileURLs returns both download and preview URLs
-func (s *FileService) GetFileURLs(fileID string, userID string) (downloadURL, previewURL string, err error) {
-	file, err := s.GetFileByID(fileID, userID)
-	if err != nil {
-		return "", "", err
-	}
-
-	// Get both URLs from B2
-	downloadURL, previewURL, err = s.b2Service.RefreshURLs(file.B2FileID)
-	if err != nil {
-		return "", "", fmt.Errorf("failed to generate URLs: %w", err)
-	}
-
-	// If file is not previewable, return empty preview URL
-	if !s.b2Service.IsPreviewableFile(file.Name) {
-		previewURL = ""
-	}
-
-	return downloadURL, previewURL, nil
-}
-
 func (s *FileService) DeleteFile(fileID string, userID string) error {
 	objID, err := primitive.ObjectIDFromHex(fileID)
 	if err != nil {
@@ -391,24 +365,6 @@ func (s *FileService) DeleteFile(fileID string, userID string) error {
 	}
 
 	return nil
-}
-
-func (s *FileService) GetFileVersions(fileID string, userID string) ([]models.FileVersion, error) {
-	file, err := s.GetFileByID(fileID, userID)
-	if err != nil {
-		return nil, err
-	}
-
-	return file.Versions, nil
-}
-
-func (s *FileService) GetFilePermissions(fileID string, userID string) ([]models.Permission, error) {
-	file, err := s.GetFileByID(fileID, userID)
-	if err != nil {
-		return nil, err
-	}
-
-	return file.Permissions, nil
 }
 
 func (s *FileService) cleanupUploadedFiles(files []models.File) {

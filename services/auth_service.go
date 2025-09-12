@@ -208,6 +208,8 @@ func (s *AuthService) createIndexes() {
 	}
 }
 
+const OAuthStateExpiration = 10 * time.Minute // Duration for which OAuth state is valid; adjust as needed
+
 func (s *AuthService) GenerateState() (string, error) {
 	bytes := make([]byte, 32)
 	if _, err := rand.Read(bytes); err != nil {
@@ -216,8 +218,8 @@ func (s *AuthService) GenerateState() (string, error) {
 
 	state := base64.RawURLEncoding.EncodeToString(bytes)
 
-	// Store with 10-minute expiration
-	duration := 10 * time.Minute
+	// Store with configurable expiration
+	duration := OAuthStateExpiration
 	s.stateManager.Store(state, duration)
 
 	log.Printf("[AuthService] Generated new state: %s", state)

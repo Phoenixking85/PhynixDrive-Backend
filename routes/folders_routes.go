@@ -19,8 +19,8 @@ func RegisterFolderRoutes(rg *gin.RouterGroup, jwtSecret string, folderService *
 		folders.POST("/", folderController.CreateFolder)                 // POST /folders - Create folder
 		folders.GET("/", folderController.ListRootFolders)               // GET /folders - List root folders
 		folders.GET("/:id/contents", folderController.GetFolderContents) // GET /folders/:id/contents - View folder contents (Google Drive style)
-		folders.POST("/:id/share", folderController.ShareFolder)         // POST /folders/:id/share - Share folder with inheritance
-		folders.GET("/:id/download", folderController.DownloadFolder)    // GET /folders/:id/download - Download folder as ZIP
+		// POST /folders/:id/share - Share folder with inheritance
+		folders.GET("/:id/download", folderController.DownloadFolder) // GET /folders/:id/download - Download folder as ZIP
 
 		// Additional folder operations
 		folders.GET("/:id", folderController.GetFolder)             // GET /folders/:id - Get specific folder
@@ -28,10 +28,9 @@ func RegisterFolderRoutes(rg *gin.RouterGroup, jwtSecret string, folderService *
 		folders.DELETE("/:id", folderController.DeleteFolder)       // DELETE /folders/:id - Delete folder (soft delete)
 
 		// Folder permissions
-		folders.GET("/:id/permissions", folderController.GetFolderPermissions) // GET /folders/:id/permissions - Get folder permissions
+		// GET /folders/:id/permissions - Get folder permissions
 
-		// File operations within folders
-		folders.GET("/:id/files", folderController.GetFilesInFolder)                // GET /folders/:id/files - Get files in folder
+		// GET /folders/:id/files - Get files in folder
 		folders.DELETE("/:id/files/:fileId", folderController.DeleteFileFromFolder) // DELETE /folders/:id/files/:fileId - Delete file from folder
 	}
 }

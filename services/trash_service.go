@@ -640,6 +640,4 @@ func StartTrashCleanupJob(trashService *TrashService, interval time.Duration) {
 		}
 	}()
 
-	// To stop the job (though we don't use this in our current implementation)
-	close(quit)
 }

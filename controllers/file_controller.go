@@ -92,29 +92,6 @@ func (fc *FileController) GetAllFiles(c *gin.Context) {
 	utils.SuccessResponse(c, "Files retrieved", files)
 }
 
-func (fc *FileController) GetFolderFiles(c *gin.Context) {
-	folderId := c.Param("id")
-	userId := c.GetString("userIdStr")
-
-	if userId == "" {
-		utils.ErrorResponse(c, http.StatusUnauthorized, "User not authenticated", nil)
-		return
-	}
-
-	if folderId == "" {
-		utils.ErrorResponse(c, http.StatusBadRequest, "Folder ID is required", nil)
-		return
-	}
-
-	files, err := fc.fileService.GetFolderFiles(folderId, userId)
-	if err != nil {
-		utils.ErrorResponse(c, http.StatusInternalServerError, "Failed to get folder files", nil)
-		return
-	}
-
-	utils.SuccessResponse(c, "Folder files retrieved", files)
-}
-
 // Update the existing DownloadFile method and add new methods
 
 func (fc *FileController) DownloadFile(c *gin.Context) {
@@ -167,41 +144,6 @@ func (fc *FileController) PreviewFile(c *gin.Context) {
 	})
 }
 
-func (fc *FileController) GetFileURLs(c *gin.Context) {
-	fileId := c.Param("id")
-	userId := c.GetString("userIdStr")
-
-	if userId == "" {
-		utils.ErrorResponse(c, http.StatusUnauthorized, "User not authenticated", nil)
-		return
-	}
-
-	if fileId == "" {
-		utils.ErrorResponse(c, http.StatusBadRequest, "File ID is required", nil)
-		return
-	}
-
-	downloadURL, previewURL, err := fc.fileService.GetFileURLs(fileId, userId)
-	if err != nil {
-		utils.ErrorResponse(c, http.StatusInternalServerError, err.Error(), nil)
-		return
-	}
-
-	response := map[string]interface{}{
-		"downloadUrl": downloadURL,
-	}
-
-	// Only include preview URL if file is previewable
-	if previewURL != "" {
-		response["previewUrl"] = previewURL
-		response["isPreviewable"] = true
-	} else {
-		response["isPreviewable"] = false
-	}
-
-	utils.SuccessResponse(c, "File URLs generated", response)
-}
-
 func (fc *FileController) DeleteFile(c *gin.Context) {
 	fileId := c.Param("id") // Changed from "fileId" to "id" to match route
 	userId := c.GetString("userIdStr")
@@ -223,52 +165,6 @@ func (fc *FileController) DeleteFile(c *gin.Context) {
 	}
 
 	utils.SuccessResponse(c, "File moved to trash", nil)
-}
-
-func (fc *FileController) GetFileVersions(c *gin.Context) {
-	fileId := c.Param("id")
-	userId := c.GetString("userIdStr")
-
-	if userId == "" {
-		utils.ErrorResponse(c, http.StatusUnauthorized, "User not authenticated", nil)
-		return
-	}
-
-	if fileId == "" {
-		utils.ErrorResponse(c, http.StatusBadRequest, "File ID is required", nil)
-		return
-	}
-
-	versions, err := fc.fileService.GetFileVersions(fileId, userId)
-	if err != nil {
-		utils.ErrorResponse(c, http.StatusInternalServerError, "Failed to get file versions", nil)
-		return
-	}
-
-	utils.SuccessResponse(c, "File versions retrieved", versions)
-}
-
-func (fc *FileController) GetFilePermissions(c *gin.Context) {
-	fileId := c.Param("id")
-	userId := c.GetString("userIdStr")
-
-	if userId == "" {
-		utils.ErrorResponse(c, http.StatusUnauthorized, "User not authenticated", nil)
-		return
-	}
-
-	if fileId == "" {
-		utils.ErrorResponse(c, http.StatusBadRequest, "File ID is required", nil)
-		return
-	}
-
-	permissions, err := fc.fileService.GetFilePermissions(fileId, userId)
-	if err != nil {
-		utils.ErrorResponse(c, http.StatusInternalServerError, "Failed to get file permissions", nil)
-		return
-	}
-
-	utils.SuccessResponse(c, "File permissions retrieved", permissions)
 }
 
 func (fc *FileController) GetFileMetadata(c *gin.Context) {
@@ -318,31 +214,4 @@ func (fc *FileController) RenameFile(c *gin.Context) {
 	}
 
 	utils.SuccessResponse(c, "File renamed successfully", nil)
-}
-
-func (fc *FileController) ShareFile(c *gin.Context) {
-	fileId := c.Param("id")
-	userId := c.GetString("userIdStr")
-
-	if userId == "" {
-		utils.ErrorResponse(c, http.StatusUnauthorized, "User not authenticated", nil)
-		return
-	}
-
-	if fileId == "" {
-		utils.ErrorResponse(c, http.StatusBadRequest, "File ID is required", nil)
-		return
-	}
-
-	var req struct {
-		Email      string `json:"email" binding:"required"`
-		Permission string `json:"permission" binding:"required"` // "read" or "write"
-	}
-
-	if err := c.ShouldBindJSON(&req); err != nil {
-		utils.ErrorResponse(c, http.StatusBadRequest, "Invalid request body", nil)
-		return
-	}
-
-	utils.SuccessResponse(c, "File shared successfully", nil)
 }
