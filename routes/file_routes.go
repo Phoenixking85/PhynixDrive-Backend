@@ -24,14 +24,9 @@ func RegisterFileRoutes(rg *gin.RouterGroup, db *mongo.Database, jwtSecret strin
 		// File access URLs
 		files.GET("/:id/download", fileController.DownloadFile) // GET /files/:id/download (B2 signed URL for download)
 		files.GET("/:id/preview", fileController.PreviewFile)   // GET /files/:id/preview (B2 signed URL for preview)
-		files.GET("/:id/urls", fileController.GetFileURLs)      // GET /files/:id/urls (both download and preview URLs)
-
 		// File versions
-		files.GET("/:id/versions", fileController.GetFileVersions) // GET /files/:id/versions
 
 		// File permissions and sharing
-		files.GET("/:id/permissions", fileController.GetFilePermissions) // GET /files/:id/permissions
-		files.POST("/:id/share", fileController.ShareFile)               // POST /files/:id/share
 	}
 
 	// File upload and listing routes (separate from /files/:id pattern to avoid conflicts)

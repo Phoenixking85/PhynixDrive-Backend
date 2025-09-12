@@ -15,7 +15,7 @@ type PermissionService struct {
 	fileCollection       *mongo.Collection
 	folderCollection     *mongo.Collection
 	permissionCollection *mongo.Collection
-	userCollection       *mongo.Collection // Added for user validation
+	userCollection       *mongo.Collection
 }
 
 func NewPermissionService(db *mongo.Database) *PermissionService {
@@ -27,45 +27,32 @@ func NewPermissionService(db *mongo.Database) *PermissionService {
 	}
 }
 
-// Enhanced permission check that determines resource type automatically
+// Public API used by ShareService and other services
+
+// HasResourcePermission infers resource type and checks permission for requiredRole
 func (s *PermissionService) HasResourcePermission(ctx context.Context, userID, resourceID, requiredRole string) (bool, error) {
-	objID, err := primitive.ObjectIDFromHex(resourceID)
-	if err != nil {
-		return false, fmt.Errorf("invalid resource ID: %w", err)
-	}
-
-	// Try to find as file first
-	var file models.File
-	err = s.fileCollection.FindOne(ctx, bson.M{
-		"_id":        objID,
-		"deleted_at": nil,
-	}).Decode(&file)
-
+	// Try file
+	ok, err := s.HasFilePermission(ctx, userID, resourceID, requiredRole)
 	if err == nil {
-		// It's a file
-		return s.hasFilePermissionInternal(ctx, userID, resourceID, requiredRole, &file)
-	} else if err != mongo.ErrNoDocuments {
-		return false, fmt.Errorf("error checking file: %w", err)
+		return ok, nil
+	}
+	// If file returned "not found", try folder
+	if err != nil && err.Error() == "file not found" {
+		return s.HasFolderPermission(ctx, userID, resourceID, requiredRole)
+	}
+	// If file check returned a different error, propagate (except "file not found")
+	if err != nil {
+		// if it was file not found we handled above, else return error
+		if err.Error() != "file not found" {
+			return false, err
+		}
 	}
 
-	// Try to find as folder
-	var folder models.Folder
-	err = s.folderCollection.FindOne(ctx, bson.M{
-		"_id":        objID,
-		"deleted_at": nil,
-	}).Decode(&folder)
-
-	switch err {
-	case nil:
-		// It's a folder
-		return s.hasFolderPermissionInternal(ctx, userID, resourceID, requiredRole, &folder)
-	case mongo.ErrNoDocuments:
-		return false, fmt.Errorf("resource not found")
-	}
-
-	return false, fmt.Errorf("error checking folder: %w", err)
+	// Fallback: try folder
+	return s.HasFolderPermission(ctx, userID, resourceID, requiredRole)
 }
 
+// HasFilePermission checks permission on a file (owner, inherited from folder, direct)
 func (s *PermissionService) HasFilePermission(ctx context.Context, userID, fileID, requiredRole string) (bool, error) {
 	objID, err := primitive.ObjectIDFromHex(fileID)
 	if err != nil {
@@ -84,24 +71,21 @@ func (s *PermissionService) HasFilePermission(ctx context.Context, userID, fileI
 		return false, fmt.Errorf("error fetching file: %w", err)
 	}
 
-	return s.hasFilePermissionInternal(ctx, userID, fileID, requiredRole, &file)
-}
-
-func (s *PermissionService) hasFilePermissionInternal(ctx context.Context, userID, fileID, requiredRole string, file *models.File) (bool, error) {
-	// Owner always has access
+	// Owner always has full access
 	if file.OwnerID.Hex() == userID {
 		return true, nil
 	}
 
-	// If file is in a folder, check inherited permissions
+	// If file is inside a folder, check folder permissions (inheritance)
 	if file.FolderID != nil {
 		return s.HasFolderPermission(ctx, userID, file.FolderID.Hex(), requiredRole)
 	}
 
-	// Check direct permission on file
+	// Check direct permissions on file
 	return s.checkDirectPermission(ctx, userID, fileID, "file", requiredRole)
 }
 
+// HasFolderPermission checks permission on a folder (owner, direct, inherited from parent)
 func (s *PermissionService) HasFolderPermission(ctx context.Context, userID, folderID, requiredRole string) (bool, error) {
 	objID, err := primitive.ObjectIDFromHex(folderID)
 	if err != nil {
@@ -120,25 +104,21 @@ func (s *PermissionService) HasFolderPermission(ctx context.Context, userID, fol
 		return false, fmt.Errorf("error fetching folder: %w", err)
 	}
 
-	return s.hasFolderPermissionInternal(ctx, userID, folderID, requiredRole, &folder)
-}
-
-func (s *PermissionService) hasFolderPermissionInternal(ctx context.Context, userID, folderID, requiredRole string, folder *models.Folder) (bool, error) {
 	// Owner always has full access
 	if folder.OwnerID.Hex() == userID {
 		return true, nil
 	}
 
-	// Check direct permission on folder
-	hasPerm, err := s.checkDirectPermission(ctx, userID, folderID, "folder", requiredRole)
+	// Direct permission on this folder
+	ok, err := s.checkDirectPermission(ctx, userID, folderID, "folder", requiredRole)
 	if err != nil {
 		return false, err
 	}
-	if hasPerm {
+	if ok {
 		return true, nil
 	}
 
-	// Check inherited permissions from parent folders
+	// Inherit from parent chain
 	if folder.ParentID != nil {
 		return s.HasFolderPermission(ctx, userID, folder.ParentID.Hex(), requiredRole)
 	}
@@ -146,12 +126,387 @@ func (s *PermissionService) hasFolderPermissionInternal(ctx context.Context, use
 	return false, nil
 }
 
+// ShareFolder grants a permission for a folder to a user (create or update permission doc)
+func (s *PermissionService) ShareFolder(ctx context.Context, folderID, sharedWithUserID, role, sharedByUserID string) error {
+	// Validate role
+	if !isValidRole(role) {
+		return fmt.Errorf("invalid role: %s", role)
+	}
+
+	// Validate user exists
+	sharedWithObjID, err := primitive.ObjectIDFromHex(sharedWithUserID)
+	if err != nil {
+		return fmt.Errorf("invalid user id: %w", err)
+	}
+	var u models.User
+	if err := s.userCollection.FindOne(ctx, bson.M{"_id": sharedWithObjID}).Decode(&u); err != nil {
+		if err == mongo.ErrNoDocuments {
+			return fmt.Errorf("user not found")
+		}
+		return fmt.Errorf("error fetching user: %w", err)
+	}
+
+	// Validate folder exists and sharedByUserID has admin on folder
+	hasPerm, err := s.HasFolderPermission(ctx, sharedByUserID, folderID, "admin")
+	if err != nil {
+		return fmt.Errorf("permission check failed: %w", err)
+	}
+	if !hasPerm {
+		return fmt.Errorf("insufficient permissions to share folder")
+	}
+
+	// Prevent sharing with self (business rule)
+	if sharedWithUserID == sharedByUserID {
+		return fmt.Errorf("cannot share with yourself")
+	}
+
+	// Insert or update permission doc
+	var existing models.Permission
+	err = s.permissionCollection.FindOne(ctx, bson.M{
+		"user_id":       sharedWithUserID,
+		"resource_id":   folderID,
+		"resource_type": "folder",
+	}).Decode(&existing)
+
+	now := time.Now()
+	if err == mongo.ErrNoDocuments {
+		perm := models.Permission{
+			ID:           primitive.NewObjectID(),
+			UserID:       sharedWithUserID,
+			Role:         role,
+			ResourceID:   folderID,
+			ResourceType: "folder",
+			GrantedBy:    sharedByUserID,
+			GrantedAt:    now,
+			IsActive:     true,
+		}
+		if _, insErr := s.permissionCollection.InsertOne(ctx, perm); insErr != nil {
+			return fmt.Errorf("failed to create permission: %w", insErr)
+		}
+		return nil
+	} else if err != nil {
+		return fmt.Errorf("failed to check existing permission: %w", err)
+	}
+
+	// Update existing permission
+	_, updErr := s.permissionCollection.UpdateOne(ctx, bson.M{"_id": existing.ID}, bson.M{
+		"$set": bson.M{
+			"role":       role,
+			"granted_by": sharedByUserID,
+			"granted_at": now,
+			"is_active":  true,
+			"updated_at": now,
+			"updated_by": sharedByUserID,
+		},
+	})
+	if updErr != nil {
+		return fmt.Errorf("failed to update permission: %w", updErr)
+	}
+
+	return nil
+}
+
+// ShareFile grants permission for a file to a user (create or update permission doc)
+func (s *PermissionService) ShareFile(ctx context.Context, fileID, sharedWithUserID, role, sharedByUserID string) error {
+	// Validate role
+	if !isValidRole(role) {
+		return fmt.Errorf("invalid role: %s", role)
+	}
+
+	// Validate user exists
+	sharedWithObjID, err := primitive.ObjectIDFromHex(sharedWithUserID)
+	if err != nil {
+		return fmt.Errorf("invalid user id: %w", err)
+	}
+	var u models.User
+	if err := s.userCollection.FindOne(ctx, bson.M{"_id": sharedWithObjID}).Decode(&u); err != nil {
+		if err == mongo.ErrNoDocuments {
+			return fmt.Errorf("user not found")
+		}
+		return fmt.Errorf("error fetching user: %w", err)
+	}
+
+	// Validate file exists and sharedByUserID has admin on file (or on parent folder)
+	hasPerm, err := s.HasFilePermission(ctx, sharedByUserID, fileID, "admin")
+	if err != nil {
+		return fmt.Errorf("permission check failed: %w", err)
+	}
+	if !hasPerm {
+		return fmt.Errorf("insufficient permissions to share file")
+	}
+
+	// Prevent sharing with self
+	if sharedWithUserID == sharedByUserID {
+		return fmt.Errorf("cannot share with yourself")
+	}
+
+	// Insert or update permission doc
+	var existing models.Permission
+	err = s.permissionCollection.FindOne(ctx, bson.M{
+		"user_id":       sharedWithUserID,
+		"resource_id":   fileID,
+		"resource_type": "file",
+	}).Decode(&existing)
+
+	now := time.Now()
+	if err == mongo.ErrNoDocuments {
+		perm := models.Permission{
+			ID:           primitive.NewObjectID(),
+			UserID:       sharedWithUserID,
+			Role:         role,
+			ResourceID:   fileID,
+			ResourceType: "file",
+			GrantedBy:    sharedByUserID,
+			GrantedAt:    now,
+			IsActive:     true,
+		}
+		if _, insErr := s.permissionCollection.InsertOne(ctx, perm); insErr != nil {
+			return fmt.Errorf("failed to create permission: %w", insErr)
+		}
+		return nil
+	} else if err != nil {
+		return fmt.Errorf("failed to check existing permission: %w", err)
+	}
+
+	// Update existing permission
+	_, updErr := s.permissionCollection.UpdateOne(ctx, bson.M{"_id": existing.ID}, bson.M{
+		"$set": bson.M{
+			"role":       role,
+			"granted_by": sharedByUserID,
+			"granted_at": now,
+			"is_active":  true,
+			"updated_at": now,
+			"updated_by": sharedByUserID,
+		},
+	})
+	if updErr != nil {
+		return fmt.Errorf("failed to update permission: %w", updErr)
+	}
+
+	return nil
+}
+
+// RevokeFolderPermission revokes a user's permission on a folder (only admin can revoke)
+func (s *PermissionService) RevokeFolderPermission(ctx context.Context, folderID, targetUserID, revokedByUserID string) error {
+	// Validate revokedBy has admin on the folder
+	hasPerm, err := s.HasFolderPermission(ctx, revokedByUserID, folderID, "admin")
+	if err != nil {
+		return fmt.Errorf("permission check failed: %w", err)
+	}
+	if !hasPerm {
+		return fmt.Errorf("insufficient permissions to revoke access")
+	}
+
+	// Can't revoke owner's permissions
+	folderObjID, err := primitive.ObjectIDFromHex(folderID)
+	if err != nil {
+		return fmt.Errorf("invalid folder ID: %w", err)
+	}
+
+	var folder models.Folder
+	if err := s.folderCollection.FindOne(ctx, bson.M{"_id": folderObjID, "deleted_at": nil}).Decode(&folder); err != nil {
+		if err == mongo.ErrNoDocuments {
+			return fmt.Errorf("folder not found")
+		}
+		return fmt.Errorf("error fetching folder: %w", err)
+	}
+	if folder.OwnerID.Hex() == targetUserID {
+		return fmt.Errorf("cannot revoke owner's permissions")
+	}
+
+	// Soft deactivate permission (preferred) so history remains
+	now := time.Now()
+	res, err := s.permissionCollection.UpdateMany(ctx, bson.M{
+		"user_id":       targetUserID,
+		"resource_id":   folderID,
+		"resource_type": "folder",
+		"is_active":     true,
+	}, bson.M{
+		"$set": bson.M{
+			"is_active":  false,
+			"revoked_at": now,
+			"revoked_by": revokedByUserID,
+			"updated_at": now,
+			"updated_by": revokedByUserID,
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("failed to revoke permission: %w", err)
+	}
+	if res.MatchedCount == 0 {
+		// Nothing matched; interpret as no active permission
+		return fmt.Errorf("no active permission found to revoke")
+	}
+	return nil
+}
+
+// RevokeFilePermission revokes a user's permission on a file (only admin can revoke)
+func (s *PermissionService) RevokeFilePermission(ctx context.Context, fileID, targetUserID, revokedByUserID string) error {
+	// Validate revokedBy has admin on the file (or parent folder)
+	hasPerm, err := s.HasFilePermission(ctx, revokedByUserID, fileID, "admin")
+	if err != nil {
+		return fmt.Errorf("permission check failed: %w", err)
+	}
+	if !hasPerm {
+		return fmt.Errorf("insufficient permissions to revoke access")
+	}
+
+	// Can't revoke owner's permissions
+	fileObjID, err := primitive.ObjectIDFromHex(fileID)
+	if err != nil {
+		return fmt.Errorf("invalid file ID: %w", err)
+	}
+
+	var file models.File
+	if err := s.fileCollection.FindOne(ctx, bson.M{"_id": fileObjID, "deleted_at": nil}).Decode(&file); err != nil {
+		if err == mongo.ErrNoDocuments {
+			return fmt.Errorf("file not found")
+		}
+		return fmt.Errorf("error fetching file: %w", err)
+	}
+	if file.OwnerID.Hex() == targetUserID {
+		return fmt.Errorf("cannot revoke owner's permissions")
+	}
+
+	now := time.Now()
+	res, err := s.permissionCollection.UpdateMany(ctx, bson.M{
+		"user_id":       targetUserID,
+		"resource_id":   fileID,
+		"resource_type": "file",
+		"is_active":     true,
+	}, bson.M{
+		"$set": bson.M{
+			"is_active":  false,
+			"revoked_at": now,
+			"revoked_by": revokedByUserID,
+			"updated_at": now,
+			"updated_by": revokedByUserID,
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("failed to revoke permission: %w", err)
+	}
+	if res.MatchedCount == 0 {
+		return fmt.Errorf("no active permission found to revoke")
+	}
+	return nil
+}
+
+// UpdateFolderPermission updates role for a target user's folder permission (only admin can update)
+func (s *PermissionService) UpdateFolderPermission(ctx context.Context, folderID, targetUserID, newRole, updatedByUserID string) error {
+	if !isValidRole(newRole) {
+		return fmt.Errorf("invalid role: %s", newRole)
+	}
+
+	// Validate updater is admin
+	hasPerm, err := s.HasFolderPermission(ctx, updatedByUserID, folderID, "admin")
+	if err != nil {
+		return fmt.Errorf("permission check failed: %w", err)
+	}
+	if !hasPerm {
+		return fmt.Errorf("insufficient permissions to update permission")
+	}
+
+	// Cannot change owner's implicit permission (owner not stored as permission doc usually)
+	folderObjID, err := primitive.ObjectIDFromHex(folderID)
+	if err != nil {
+		return fmt.Errorf("invalid folder ID: %w", err)
+	}
+	var folder models.Folder
+	if err := s.folderCollection.FindOne(ctx, bson.M{"_id": folderObjID, "deleted_at": nil}).Decode(&folder); err != nil {
+		if err == mongo.ErrNoDocuments {
+			return fmt.Errorf("folder not found")
+		}
+		return fmt.Errorf("error fetching folder: %w", err)
+	}
+	if folder.OwnerID.Hex() == targetUserID {
+		return fmt.Errorf("cannot update owner's permissions")
+	}
+
+	now := time.Now()
+	res, err := s.permissionCollection.UpdateOne(ctx, bson.M{
+		"user_id":       targetUserID,
+		"resource_id":   folderID,
+		"resource_type": "folder",
+		"is_active":     true,
+	}, bson.M{
+		"$set": bson.M{
+			"role":       newRole,
+			"updated_at": now,
+			"updated_by": updatedByUserID,
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("failed to update permission: %w", err)
+	}
+	if res.MatchedCount == 0 {
+		return fmt.Errorf("no active permission found to update")
+	}
+	return nil
+}
+
+// UpdateFilePermission updates role for a target user's file permission (only admin can update)
+func (s *PermissionService) UpdateFilePermission(ctx context.Context, fileID, targetUserID, newRole, updatedByUserID string) error {
+	if !isValidRole(newRole) {
+		return fmt.Errorf("invalid role: %s", newRole)
+	}
+
+	// Validate updater is admin on file (or parent folder)
+	hasPerm, err := s.HasFilePermission(ctx, updatedByUserID, fileID, "admin")
+	if err != nil {
+		return fmt.Errorf("permission check failed: %w", err)
+	}
+	if !hasPerm {
+		return fmt.Errorf("insufficient permissions to update permission")
+	}
+
+	// Prevent changing owner's permission
+	fileObjID, err := primitive.ObjectIDFromHex(fileID)
+	if err != nil {
+		return fmt.Errorf("invalid file ID: %w", err)
+	}
+	var file models.File
+	if err := s.fileCollection.FindOne(ctx, bson.M{"_id": fileObjID, "deleted_at": nil}).Decode(&file); err != nil {
+		if err == mongo.ErrNoDocuments {
+			return fmt.Errorf("file not found")
+		}
+		return fmt.Errorf("error fetching file: %w", err)
+	}
+	if file.OwnerID.Hex() == targetUserID {
+		return fmt.Errorf("cannot update owner's permissions")
+	}
+
+	now := time.Now()
+	res, err := s.permissionCollection.UpdateOne(ctx, bson.M{
+		"user_id":       targetUserID,
+		"resource_id":   fileID,
+		"resource_type": "file",
+		"is_active":     true,
+	}, bson.M{
+		"$set": bson.M{
+			"role":       newRole,
+			"updated_at": now,
+			"updated_by": updatedByUserID,
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("failed to update permission: %w", err)
+	}
+	if res.MatchedCount == 0 {
+		return fmt.Errorf("no active permission found to update")
+	}
+	return nil
+}
+
+// -- Internal helpers --
+
 func (s *PermissionService) checkDirectPermission(ctx context.Context, userID, resourceID, resourceType, requiredRole string) (bool, error) {
 	var permission models.Permission
 	err := s.permissionCollection.FindOne(ctx, bson.M{
 		"user_id":       userID,
 		"resource_id":   resourceID,
 		"resource_type": resourceType,
+		"is_active":     true,
 	}).Decode(&permission)
 
 	if err == mongo.ErrNoDocuments {
@@ -160,171 +515,25 @@ func (s *PermissionService) checkDirectPermission(ctx context.Context, userID, r
 		return false, fmt.Errorf("permission check failed: %w", err)
 	}
 
-	return s.hasRequiredRole(permission.Role, requiredRole), nil
+	return hasRequiredRole(permission.Role, requiredRole), nil
 }
 
-func (s *PermissionService) hasRequiredRole(userRole, requiredRole string) bool {
+func hasRequiredRole(userRole, requiredRole string) bool {
 	roleHierarchy := map[string]int{
 		"viewer": 1,
 		"editor": 2,
 		"admin":  3,
 	}
-	userLevel, ok1 := roleHierarchy[userRole]
-	requiredLevel, ok2 := roleHierarchy[requiredRole]
-
-	return ok1 && ok2 && userLevel >= requiredLevel
+	ur, ok1 := roleHierarchy[userRole]
+	rr, ok2 := roleHierarchy[requiredRole]
+	return ok1 && ok2 && ur >= rr
 }
 
-// Enhanced ShareFolder with proper validation
-func (s *PermissionService) ShareFolder(ctx context.Context, folderID, sharedWithUserID, role, sharedByUserID string) error {
-	// Validate role
-	validRoles := map[string]bool{
-		"viewer": true,
-		"editor": true,
-		"admin":  true,
+func isValidRole(role string) bool {
+	switch role {
+	case "viewer", "editor", "admin":
+		return true
+	default:
+		return false
 	}
-	if !validRoles[role] {
-		return fmt.Errorf("invalid role: %s", role)
-	}
-
-	// Validate that the user being shared with exists
-	userObjID, err := primitive.ObjectIDFromHex(sharedWithUserID)
-	if err != nil {
-		return fmt.Errorf("invalid user ID: %w", err)
-	}
-
-	var user models.User
-	err = s.userCollection.FindOne(ctx, bson.M{"_id": userObjID}).Decode(&user)
-	if err != nil {
-		if err == mongo.ErrNoDocuments {
-			return fmt.Errorf("user not found")
-		}
-		return fmt.Errorf("error validating user: %w", err)
-	}
-
-	// Validate that the folder exists and user has admin permission
-	hasPermission, err := s.HasFolderPermission(ctx, sharedByUserID, folderID, "admin")
-	if err != nil {
-		return fmt.Errorf("permission check failed: %w", err)
-	}
-	if !hasPermission {
-		return fmt.Errorf("insufficient permissions to share folder")
-	}
-
-	// Don't allow sharing with yourself (optional business logic)
-	if sharedWithUserID == sharedByUserID {
-		return fmt.Errorf("cannot share with yourself")
-	}
-
-	// Check if permission already exists
-	var existing models.Permission
-	err = s.permissionCollection.FindOne(ctx, bson.M{
-		"user_id":       sharedWithUserID,
-		"resource_id":   folderID,
-		"resource_type": "folder",
-	}).Decode(&existing)
-
-	if err == mongo.ErrNoDocuments {
-		// Create new permission
-		permission := models.Permission{
-			ID:           primitive.NewObjectID(),
-			UserID:       sharedWithUserID,
-			Role:         role,
-			ResourceID:   folderID,
-			ResourceType: "folder",
-			GrantedBy:    sharedByUserID,
-			GrantedAt:    time.Now(),
-		}
-
-		_, err = s.permissionCollection.InsertOne(ctx, permission)
-		if err != nil {
-			return fmt.Errorf("failed to create permission: %w", err)
-		}
-	} else if err != nil {
-		return fmt.Errorf("failed to fetch existing permission: %w", err)
-	} else {
-		// Update existing permission
-		_, err = s.permissionCollection.UpdateOne(ctx, bson.M{
-			"_id": existing.ID,
-		}, bson.M{
-			"$set": bson.M{
-				"role":       role,
-				"granted_by": sharedByUserID,
-				"granted_at": time.Now(),
-			},
-		})
-		if err != nil {
-			return fmt.Errorf("failed to update permission: %w", err)
-		}
-	}
-
-	return nil
-}
-
-func (s *PermissionService) GetFolderPermissions(ctx context.Context, folderID, userID string) ([]models.Permission, error) {
-	hasPermission, err := s.HasFolderPermission(ctx, userID, folderID, "admin")
-	if err != nil {
-		return nil, fmt.Errorf("permission check failed: %w", err)
-	}
-	if !hasPermission {
-		return nil, fmt.Errorf("insufficient permissions")
-	}
-
-	cursor, err := s.permissionCollection.Find(ctx, bson.M{
-		"resource_id":   folderID,
-		"resource_type": "folder",
-	})
-	if err != nil {
-		return nil, fmt.Errorf("failed to fetch permissions: %w", err)
-	}
-	defer cursor.Close(ctx)
-
-	var permissions []models.Permission
-	if err = cursor.All(ctx, &permissions); err != nil {
-		return nil, fmt.Errorf("failed to decode permissions: %w", err)
-	}
-
-	return permissions, nil
-}
-
-// New method to revoke permissions
-func (s *PermissionService) RevokePermission(ctx context.Context, folderID, userID, revokedByUserID string) error {
-	// Only admin can revoke permissions
-	hasPermission, err := s.HasFolderPermission(ctx, revokedByUserID, folderID, "admin")
-	if err != nil {
-		return fmt.Errorf("permission check failed: %w", err)
-	}
-	if !hasPermission {
-		return fmt.Errorf("insufficient permissions to revoke access")
-	}
-
-	// Cannot revoke owner's permissions
-	folderObjID, err := primitive.ObjectIDFromHex(folderID)
-	if err != nil {
-		return fmt.Errorf("invalid folder ID: %w", err)
-	}
-
-	var folder models.Folder
-	err = s.folderCollection.FindOne(ctx, bson.M{
-		"_id":        folderObjID,
-		"deleted_at": nil,
-	}).Decode(&folder)
-	if err != nil {
-		return fmt.Errorf("folder not found: %w", err)
-	}
-
-	if folder.OwnerID.Hex() == userID {
-		return fmt.Errorf("cannot revoke owner's permissions")
-	}
-
-	_, err = s.permissionCollection.DeleteOne(ctx, bson.M{
-		"user_id":       userID,
-		"resource_id":   folderID,
-		"resource_type": "folder",
-	})
-	if err != nil {
-		return fmt.Errorf("failed to revoke permission: %w", err)
-	}
-
-	return nil
 }

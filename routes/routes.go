@@ -2,6 +2,7 @@
 package routes
 
 import (
+	"phynixdrive/controllers"
 	"phynixdrive/services"
 
 	"github.com/gin-gonic/gin"
@@ -31,18 +32,23 @@ func SetupRoutes(api *gin.RouterGroup, db *mongo.Database, jwtSecret string, b2C
 		return err
 	}
 
-	// Initialize permission service (required by folder service)
+	// Initialize permission service (required by folder + share service)
 	permissionService := services.NewPermissionService(db)
 
-	// Initialize folder service with all dependencies
+	// Initialize folder service
 	folderService := services.NewFolderService(db, permissionService, b2Service)
 
-	// Register all route groups with their required dependencies
+	// Initialize share service + controller ✅ (only db + permissionService)
+	shareService := services.NewShareService(db, permissionService)
+	shareController := controllers.NewShareController(shareService)
+
+	// Register all route groups
 	RegisterAuthRoutes(api, db, jwtSecret, googleConfig.ClientID, googleConfig.ClientSecret, googleConfig.RedirectURL)
-	RegisterFolderRoutes(api, jwtSecret, folderService, b2Service) // Now consistent - passing pointer
+	RegisterFolderRoutes(api, jwtSecret, folderService, b2Service)
 	RegisterFileRoutes(api, db, jwtSecret, folderService, b2Service, permissionService)
 	RegisterTrashRoutes(api, db, jwtSecret, b2Service)
 	RegisterSearchRoutes(api, db, permissionService)
+	RegisterShareRoutes(api, jwtSecret, shareController) // ✅ added
 
 	return nil
 }
@@ -56,12 +62,16 @@ func SetupRoutesWithServices(api *gin.RouterGroup,
 	permissionService *services.PermissionService,
 	googleConfig GoogleConfig) {
 
-	// Register all route groups with their required dependencies
+	// ✅ only db + permissionService
+	shareService := services.NewShareService(db, permissionService)
+	shareController := controllers.NewShareController(shareService)
+
 	RegisterAuthRoutes(api, db, jwtSecret, googleConfig.ClientID, googleConfig.ClientSecret, googleConfig.RedirectURL)
-	RegisterFolderRoutes(api, jwtSecret, folderService, b2Service) // Now consistent - passing pointer
+	RegisterFolderRoutes(api, jwtSecret, folderService, b2Service)
 	RegisterFileRoutes(api, db, jwtSecret, folderService, b2Service, permissionService)
 	RegisterTrashRoutes(api, db, jwtSecret, b2Service)
 	RegisterSearchRoutes(api, db, permissionService)
+	RegisterShareRoutes(api, jwtSecret, shareController) // ✅ added
 }
 
 // ServiceContainer holds all services and dependencies
@@ -85,7 +95,7 @@ func NewServiceContainer(db *mongo.Database, jwtSecret string, b2Config B2Config
 	// Initialize permission service
 	permissionService := services.NewPermissionService(db)
 
-	// Initialize folder service with all dependencies
+	// Initialize folder service
 	folderService := services.NewFolderService(db, permissionService, b2Service)
 
 	return &ServiceContainer{
@@ -100,13 +110,18 @@ func NewServiceContainer(db *mongo.Database, jwtSecret string, b2Config B2Config
 
 // SetupRoutesWithContainer configures all API routes using a service container
 func SetupRoutesWithContainer(api *gin.RouterGroup, container *ServiceContainer) {
-	// Register all route groups using the service container
+	// ✅ only db + permissionService
+	shareService := services.NewShareService(container.DB, container.PermissionService)
+	shareController := controllers.NewShareController(shareService)
+
 	RegisterAuthRoutes(api, container.DB, container.JWTSecret,
 		container.GoogleConfig.ClientID,
 		container.GoogleConfig.ClientSecret,
 		container.GoogleConfig.RedirectURL)
-	RegisterFolderRoutes(api, container.JWTSecret, container.FolderService, container.B2Service) // Now consistent - passing pointer
+
+	RegisterFolderRoutes(api, container.JWTSecret, container.FolderService, container.B2Service)
 	RegisterFileRoutes(api, container.DB, container.JWTSecret, container.FolderService, container.B2Service, container.PermissionService)
 	RegisterTrashRoutes(api, container.DB, container.JWTSecret, container.B2Service)
 	RegisterSearchRoutes(api, container.DB, container.PermissionService)
+	RegisterShareRoutes(api, container.JWTSecret, shareController) // ✅ added
 }

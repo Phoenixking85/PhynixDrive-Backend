@@ -18,4 +18,7 @@ type User struct {
 	CreatedAt    time.Time          `bson:"created_at" json:"created_at"`
 	UpdatedAt    time.Time          `bson:"updated_at" json:"updated_at"`
 	RefreshToken string             `json:"refresh_token,omitempty" bson:"refresh_token,omitempty"`
+	FirstName    string             `bson:"first_name,omitempty" json:"first_name,omitempty"` // Denormalized for quick access
+	LastName     string             `bson:"last_name,omitempty" json:"last_name,omitempty"`   // Denormalized for quick access
+
 }

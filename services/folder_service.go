@@ -36,7 +36,14 @@ type FolderContentsResponse struct {
 	Files      []FileInfo      `json:"files"` // Changed from []models.File to []FileInfo
 	Counts     ContentCounts   `json:"counts"`
 }
-
+type FolderSummary struct {
+	ID             primitive.ObjectID `json:"id"`
+	Name           string             `json:"name"`
+	Type           string             `json:"type"` // "folder"
+	CreatedAt      time.Time          `json:"created_at"`
+	FileCount      int                `json:"file_count"`
+	SubfolderCount int                `json:"subfolder_count"`
+}
 type FolderInfo struct {
 	ID       primitive.ObjectID `json:"id"`
 	Name     string             `json:"name"`
@@ -58,12 +65,6 @@ type SubfolderInfo struct {
 type ContentCounts struct {
 	Subfolders int `json:"subfolders"`
 	Files      int `json:"files"`
-}
-
-type ShareResponse struct {
-	SharedWith       string `json:"shared_with"`
-	Role             string `json:"role"`
-	ChildrenAffected int    `json:"children_affected"`
 }
 
 type FolderService struct {
@@ -239,104 +240,69 @@ func (s *FolderService) getFilesWithEndpoints(ctx context.Context, folderID prim
 
 	return files, nil
 }
-
-// ShareFolderWithInheritance shares folder with permission inheritance to child folders
-func (s *FolderService) ShareFolderWithInheritance(folderID, userID, email, role string, inheritToChildren bool) (*ShareResponse, error) {
+func (s *FolderService) ListRootFoldersWithCounts(userID string) ([]FolderSummary, error) {
 	ctx := context.Background()
 
-	// Validate user has admin permissions on folder
-	if s.permissionService != nil {
-		hasPermission, err := s.permissionService.HasFolderPermission(ctx, userID, folderID, "admin")
-		if err != nil {
-			return nil, fmt.Errorf("permission check failed: %w", err)
-		}
-		if !hasPermission {
-			return nil, fmt.Errorf("insufficient permissions to share folder")
-		}
-	}
-
-	// Find target user by email
-	var targetUser models.User
-	err := s.userCollection.FindOne(ctx, bson.M{"email": email}).Decode(&targetUser)
-	if err == mongo.ErrNoDocuments {
-		return nil, fmt.Errorf("user with email %s not found", email)
-	} else if err != nil {
-		return nil, fmt.Errorf("database error: %w", err)
-	}
-
-	// Share parent folder
-	if s.permissionService != nil {
-		err = s.permissionService.ShareFolder(ctx, folderID, targetUser.ID.Hex(), role, userID)
-		if err != nil {
-			return nil, fmt.Errorf("failed to share folder: %w", err)
-		}
-	}
-
-	childrenAffected := 0
-
-	// If inherit_to_children=true, recursively share all child folders
-	if inheritToChildren {
-		folderObjID, err := primitive.ObjectIDFromHex(folderID)
-		if err != nil {
-			return nil, fmt.Errorf("invalid folder ID: %w", err)
-		}
-
-		affected, err := s.shareChildFoldersRecursively(ctx, folderObjID, targetUser.ID.Hex(), role, userID)
-		if err != nil {
-			return nil, fmt.Errorf("failed to share child folders: %w", err)
-		}
-		childrenAffected = affected
-	}
-
-	response := &ShareResponse{
-		SharedWith:       email,
-		Role:             role,
-		ChildrenAffected: childrenAffected,
-	}
-
-	return response, nil
-}
-
-// shareChildFoldersRecursively recursively shares all child folders
-func (s *FolderService) shareChildFoldersRecursively(ctx context.Context, parentID primitive.ObjectID, targetUserID, role, sharerID string) (int, error) {
-	// Get all child folders
-	cursor, err := s.folderCollection.Find(ctx, bson.M{
-		"parent_id":  parentID,
-		"is_deleted": false,
-	})
+	ownerObjID, err := primitive.ObjectIDFromHex(userID)
 	if err != nil {
-		return 0, err
+		return nil, fmt.Errorf("invalid user ID: %w", err)
+	}
+
+	// find top-level folders (parent_id == nil)
+	filter := bson.M{
+		"owner_id":   ownerObjID,
+		"parent_id":  nil,
+		"is_deleted": false,
+	}
+
+	cursor, err := s.folderCollection.Find(ctx, filter, options.Find().SetSort(bson.M{"name": 1}))
+	if err != nil {
+		return nil, fmt.Errorf("failed to list folders: %w", err)
 	}
 	defer cursor.Close(ctx)
 
-	affected := 0
+	var results []FolderSummary
+
 	for cursor.Next(ctx) {
-		var childFolder models.Folder
-		if err := cursor.Decode(&childFolder); err != nil {
+		var folder models.Folder
+		if err := cursor.Decode(&folder); err != nil {
 			continue
 		}
 
-		// Share this child folder
-		if s.permissionService != nil {
-			err = s.permissionService.ShareFolder(ctx, childFolder.ID.Hex(), targetUserID, role, sharerID)
-			if err != nil {
-				// Log error but continue with other folders
-				fmt.Printf("Warning: failed to share child folder %s: %v\n", childFolder.Name, err)
-				continue
-			}
-			affected++
+		// Count files (use same deleted semantics as elsewhere)
+		fileCount, err := s.fileCollection.CountDocuments(ctx, bson.M{
+			"folder_id":  folder.ID,
+			"deleted_at": nil,
+		})
+		if err != nil {
+			// on error, fall back to zero but log
+			fileCount = 0
 		}
 
-		// Recursively share grandchildren
-		grandchildrenAffected, err := s.shareChildFoldersRecursively(ctx, childFolder.ID, targetUserID, role, sharerID)
+		// Count direct subfolders
+		subfolderCount, err := s.folderCollection.CountDocuments(ctx, bson.M{
+			"parent_id":  folder.ID,
+			"is_deleted": false,
+		})
 		if err != nil {
-			// Log error but continue
-			fmt.Printf("Warning: failed to share grandchildren of folder %s: %v\n", childFolder.Name, err)
+			subfolderCount = 0
 		}
-		affected += grandchildrenAffected
+
+		results = append(results, FolderSummary{
+			ID:             folder.ID,
+			Name:           folder.Name,
+			Type:           "folder",
+			CreatedAt:      folder.CreatedAt,
+			FileCount:      int(fileCount),
+			SubfolderCount: int(subfolderCount),
+		})
 	}
 
-	return affected, nil
+	if err := cursor.Err(); err != nil {
+		return nil, fmt.Errorf("cursor error: %w", err)
+	}
+
+	return results, nil
 }
 
 // CreateFolder creates a new folder
@@ -818,88 +784,6 @@ func (s *FolderService) softDeleteFiles(ctx context.Context, folderID primitive.
 		},
 	})
 	return err
-}
-
-func (s *FolderService) GetFilesInFolder(folderID string, userID string) ([]models.File, error) {
-	ctx := context.Background()
-
-	// Validate folder ID
-	folderObjID, err := primitive.ObjectIDFromHex(folderID)
-	if err != nil {
-		return nil, fmt.Errorf("invalid folder ID: %w", err)
-	}
-
-	// Check if folder exists and user has permission
-	if s.permissionService != nil {
-		hasPermission, err := s.permissionService.HasFolderPermission(ctx, userID, folderID, "viewer")
-		if err != nil {
-			return nil, fmt.Errorf("permission check failed: %w", err)
-		}
-		if !hasPermission {
-			return nil, fmt.Errorf("insufficient permissions")
-		}
-	}
-
-	// Get files in the folder
-	filter := bson.M{
-		"folder_id":  folderObjID,
-		"deleted_at": nil,
-	}
-
-	cursor, err := s.fileCollection.Find(ctx, filter, options.Find().SetSort(bson.M{"name": 1}))
-	if err != nil {
-		return nil, fmt.Errorf("failed to list files: %w", err)
-	}
-	defer cursor.Close(ctx)
-
-	var files []models.File
-	if err = cursor.All(ctx, &files); err != nil {
-		return nil, fmt.Errorf("failed to decode files: %w", err)
-	}
-
-	return files, nil
-}
-
-func (s *FolderService) ShareFolder(folderID string, userID string, email string, role string) error {
-	// Check if user has admin permissions on the folder
-	if s.permissionService != nil {
-		hasPermission, err := s.permissionService.HasFolderPermission(context.Background(), userID, folderID, "admin")
-		if err != nil {
-			return fmt.Errorf("permission check failed: %w", err)
-		}
-		if !hasPermission {
-			return fmt.Errorf("insufficient permissions to share folder")
-		}
-
-		// Find user by email
-		ctx := context.Background()
-		var targetUser models.User
-		err = s.userCollection.FindOne(ctx, bson.M{"email": email}).Decode(&targetUser)
-		if err == mongo.ErrNoDocuments {
-			return fmt.Errorf("user with email %s not found", email)
-		} else if err != nil {
-			return fmt.Errorf("database error: %w", err)
-		}
-
-		// Add permission for the shared user
-		err = s.permissionService.ShareFolder(ctx, folderID, targetUser.ID.Hex(), role, userID)
-		if err != nil {
-			return fmt.Errorf("failed to add folder permission: %w", err)
-		}
-	}
-
-	return nil
-}
-
-func (s *FolderService) GetFolderPermissions(folderID string, userID string) ([]models.Permission, error) {
-	// Check if folder exists and user has permission to view it
-	folder, err := s.GetFolderByID(folderID, userID)
-	if err != nil {
-		return nil, err
-	}
-
-	// Return the permissions from the folder
-	return folder.Permissions, nil
 }
 
 func (s *FolderService) DeleteFileFromFolder(folderID string, fileID string, userID string) error {
