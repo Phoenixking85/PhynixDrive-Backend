@@ -92,8 +92,6 @@ func (fc *FileController) GetAllFiles(c *gin.Context) {
 	utils.SuccessResponse(c, "Files retrieved", files)
 }
 
-// Update the existing DownloadFile method and add new methods
-
 func (fc *FileController) DownloadFile(c *gin.Context) {
 	fileId := c.Param("id")
 	userId := c.GetString("userIdStr")
@@ -145,7 +143,7 @@ func (fc *FileController) PreviewFile(c *gin.Context) {
 }
 
 func (fc *FileController) DeleteFile(c *gin.Context) {
-	fileId := c.Param("id") // Changed from "fileId" to "id" to match route
+	fileId := c.Param("id")
 	userId := c.GetString("userIdStr")
 
 	if userId == "" {

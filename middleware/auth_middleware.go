@@ -59,7 +59,6 @@ func extractBearerToken(c *gin.Context) string {
 	return strings.TrimSpace(authHeader[len(bearerPrefix):])
 }
 
-// Optional: Role-based access control middleware
 func RequireRole(requiredRole string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		role, exists := c.Get("role")
