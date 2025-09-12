@@ -21,7 +21,7 @@ import (
 type FileInfo struct {
 	ID               primitive.ObjectID `json:"id"`
 	Name             string             `json:"name"`
-	Type             string             `json:"type"` // Always "file"
+	Type             string             `json:"type"`
 	MimeType         string             `json:"mime_type"`
 	Size             int64              `json:"size"`
 	CreatedAt        time.Time          `json:"created_at"`
@@ -33,13 +33,13 @@ type FileInfo struct {
 type FolderContentsResponse struct {
 	Folder     FolderInfo      `json:"folder"`
 	Subfolders []SubfolderInfo `json:"subfolders"`
-	Files      []FileInfo      `json:"files"` // Changed from []models.File to []FileInfo
+	Files      []FileInfo      `json:"files"`
 	Counts     ContentCounts   `json:"counts"`
 }
 type FolderSummary struct {
 	ID             primitive.ObjectID `json:"id"`
 	Name           string             `json:"name"`
-	Type           string             `json:"type"` // "folder"
+	Type           string             `json:"type"`
 	CreatedAt      time.Time          `json:"created_at"`
 	FileCount      int                `json:"file_count"`
 	SubfolderCount int                `json:"subfolder_count"`
@@ -47,7 +47,7 @@ type FolderSummary struct {
 type FolderInfo struct {
 	ID       primitive.ObjectID `json:"id"`
 	Name     string             `json:"name"`
-	Type     string             `json:"type"` // Always "folder"
+	Type     string             `json:"type"`
 	Path     string             `json:"path"`
 	CanEdit  bool               `json:"can_edit"`
 	CanShare bool               `json:"can_share"`
@@ -56,7 +56,7 @@ type FolderInfo struct {
 type SubfolderInfo struct {
 	ID        primitive.ObjectID `json:"id"`
 	Name      string             `json:"name"`
-	Type      string             `json:"type"` // Always "folder"
+	Type      string             `json:"type"`
 	Path      string             `json:"path"`
 	FileCount int                `json:"file_count"`
 	CreatedAt time.Time          `json:"created_at"`

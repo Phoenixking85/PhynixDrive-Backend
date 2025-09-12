@@ -17,16 +17,14 @@ func RegisterFileRoutes(rg *gin.RouterGroup, db *mongo.Database, jwtSecret strin
 	files.Use(middleware.AuthMiddleware(jwtSecret)) // All file routes require authentication with JWT secret
 	{
 		// File metadata and operations
-		files.GET("/:id", fileController.GetFileMetadata)     // GET /files/:id
-		files.DELETE("/:id", fileController.DeleteFile)       // DELETE /files/:id (move to trash)
-		files.PATCH("/:id/rename", fileController.RenameFile) // PATCH /files/:id/rename
+		files.GET("/:id", fileController.GetFileMetadata)
+		files.DELETE("/:id", fileController.DeleteFile)
+		files.PATCH("/:id/rename", fileController.RenameFile)
 
 		// File access URLs
 		files.GET("/:id/download", fileController.DownloadFile) // GET /files/:id/download (B2 signed URL for download)
 		files.GET("/:id/preview", fileController.PreviewFile)   // GET /files/:id/preview (B2 signed URL for preview)
-		// File versions
 
-		// File permissions and sharing
 	}
 
 	// File upload and listing routes (separate from /files/:id pattern to avoid conflicts)

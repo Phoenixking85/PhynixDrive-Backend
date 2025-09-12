@@ -22,7 +22,7 @@ type TrashCleaner struct {
 }
 
 func NewTrashCleaner() *TrashCleaner {
-	db := config.DB // Assumes config.DB is set during initialization
+	db := config.DB
 
 	// Use loaded config
 	cfg := config.AppConfig

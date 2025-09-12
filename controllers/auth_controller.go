@@ -10,7 +10,6 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"go.mongodb.org/mongo-driver/mongo"
-
 )
 
 type AuthController struct {
@@ -32,7 +31,7 @@ const (
 	stateCookieName = "oauth_state"
 	cookieMaxAge    = 10 * 60 // 10 minutes
 	cookiePath      = "/"
-	cookieDomain    = "" // Empty for localhost, set to your domain in production
+	cookieDomain    = ""
 )
 
 // GoogleAuth returns Google OAuth URL
@@ -43,7 +42,6 @@ func (ac *AuthController) GoogleAuth(c *gin.Context) {
 		return
 	}
 
-	// Store in cookie as backup (optional)
 	c.SetSameSite(http.SameSiteStrictMode)
 	c.SetCookie(stateCookieName, state, cookieMaxAge, cookiePath, cookieDomain, false, true)
 
@@ -79,7 +77,6 @@ func (ac *AuthController) GoogleCallback(c *gin.Context) {
 	c.Redirect(http.StatusTemporaryRedirect, redirectURL)
 }
 
-// OAuthLogin handles direct ID token submission (legacy support)
 func (ac *AuthController) OAuthLogin(c *gin.Context) {
 	var req OAuthLoginRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -116,7 +113,7 @@ func (ac *AuthController) GetUserProfile(c *gin.Context) {
 	utils.SuccessResponse(c, "Profile retrieved successfully", user)
 }
 
-// Logout (for JWT: just discard token client-side)
+// Logout
 func (ac *AuthController) Logout(c *gin.Context) {
 	utils.SuccessResponse(c, "Logout successful", nil)
 }
@@ -168,35 +165,6 @@ func (ac *AuthController) DebugStates(c *gin.Context) {
 		"note":    "This endpoint is for debugging only",
 	})
 }
-
-// Helpers
-
-// validateStateParameter validates the OAuth state parameter
-/*func (ac *AuthController) validateStateParameter(c *gin.Context, state string) bool {
-	log.Printf("[AuthController] Validating OAuth state: %s", state)
-
-	// Primary validation: check server-side store via AuthService
-	if !ac.authService.ValidateState(state) {
-		log.Printf("[AuthController] State validation failed in AuthService for state: %s", state)
-		return false
-	}
-
-	// Optional: Also check cookie for additional validation (but don't fail if missing)
-	storedState, err := c.Cookie(stateCookieName)
-	if err != nil || storedState == "" {
-		log.Printf("[AuthController] No state cookie found - Error: %v", err)
-		// Don't fail here - cookie might be missing due to CORS/SameSite issues
-		// The server-side validation above is sufficient
-	} else if storedState != state {
-		log.Printf("[AuthController] State cookie mismatch - Cookie: %s, Received: %s", storedState, state)
-		// Don't fail here either - server-side validation is primary
-	} else {
-		log.Printf("[AuthController] State cookie validation passed")
-	}
-
-	log.Printf("[AuthController] State validation successful for: %s", state)
-	return true
-}*/
 
 func (ac *AuthController) extractUserID(c *gin.Context) string {
 	if userID, exists := c.Get("userIdStr"); exists {

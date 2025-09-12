@@ -13,14 +13,12 @@ func RegisterAuthRoutes(rg *gin.RouterGroup, db *mongo.Database, jwtSecret, goog
 
 	auth := rg.Group("/auth")
 	{
-		// Public OAuth2 routes
+
 		auth.GET("/google", authController.GoogleAuth)
 		auth.GET("/google/callback", authController.GoogleCallback)
 
-		// Legacy OAuth route for backward compatibility
 		auth.POST("/oauth-login", authController.OAuthLogin)
 
-		// Protected routes requiring authentication
 		protected := auth.Group("")
 		protected.Use(middleware.AuthMiddleware(jwtSecret))
 		{

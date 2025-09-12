@@ -48,7 +48,7 @@ func SetupRoutes(api *gin.RouterGroup, db *mongo.Database, jwtSecret string, b2C
 	RegisterFileRoutes(api, db, jwtSecret, folderService, b2Service, permissionService)
 	RegisterTrashRoutes(api, db, jwtSecret, b2Service)
 	RegisterSearchRoutes(api, db, permissionService)
-	RegisterShareRoutes(api, jwtSecret, shareController) // ✅ added
+	RegisterShareRoutes(api, jwtSecret, shareController)
 
 	return nil
 }
@@ -62,7 +62,6 @@ func SetupRoutesWithServices(api *gin.RouterGroup,
 	permissionService *services.PermissionService,
 	googleConfig GoogleConfig) {
 
-	// ✅ only db + permissionService
 	shareService := services.NewShareService(db, permissionService)
 	shareController := controllers.NewShareController(shareService)
 
@@ -71,7 +70,7 @@ func SetupRoutesWithServices(api *gin.RouterGroup,
 	RegisterFileRoutes(api, db, jwtSecret, folderService, b2Service, permissionService)
 	RegisterTrashRoutes(api, db, jwtSecret, b2Service)
 	RegisterSearchRoutes(api, db, permissionService)
-	RegisterShareRoutes(api, jwtSecret, shareController) // ✅ added
+	RegisterShareRoutes(api, jwtSecret, shareController)
 }
 
 // ServiceContainer holds all services and dependencies
@@ -110,7 +109,7 @@ func NewServiceContainer(db *mongo.Database, jwtSecret string, b2Config B2Config
 
 // SetupRoutesWithContainer configures all API routes using a service container
 func SetupRoutesWithContainer(api *gin.RouterGroup, container *ServiceContainer) {
-	// ✅ only db + permissionService
+
 	shareService := services.NewShareService(container.DB, container.PermissionService)
 	shareController := controllers.NewShareController(shareService)
 
@@ -123,5 +122,5 @@ func SetupRoutesWithContainer(api *gin.RouterGroup, container *ServiceContainer)
 	RegisterFileRoutes(api, container.DB, container.JWTSecret, container.FolderService, container.B2Service, container.PermissionService)
 	RegisterTrashRoutes(api, container.DB, container.JWTSecret, container.B2Service)
 	RegisterSearchRoutes(api, container.DB, container.PermissionService)
-	RegisterShareRoutes(api, container.JWTSecret, shareController) // ✅ added
+	RegisterShareRoutes(api, container.JWTSecret, shareController)
 }

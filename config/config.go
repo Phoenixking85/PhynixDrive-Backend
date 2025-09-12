@@ -42,33 +42,32 @@ type Config struct {
 	MaxFileSize    int64 // 100MB in bytes
 	MaxUserStorage int64 // 2GB in bytes
 
-	// Email Service (Optional)
+	// Email Service
 	MailgunAPIKey  string
 	MailgunDomain  string
 	SendGridAPIKey string
 	FromEmail      string
 
 	// Cron Settings
-	TrashCleanupInterval time.Duration // How often to run trash cleanup
+	TrashCleanupInterval time.Duration
 
 	// CORS
 	AllowedOrigins []string
 
-	JWTIssuer string // Issuer for JWT tokens
+	JWTIssuer string
 }
 
 var AppConfig *Config
 var DB *mongo.Database
 
 func LoadConfig() {
-	// Note: .env loading is now handled in main.go before calling this function
 
 	AppConfig = &Config{
 		// Server
 		Port: getEnv("PORT", "8080"),
 		Env:  getEnv("ENV", "development"),
 
-		// Database - Handle both MONGO_URI and MONGODB_URI
+		// Database
 		MongoURI:     getMongoURI(),
 		DatabaseName: getEnv("DATABASE_NAME", "phynixdrive"),
 
@@ -85,7 +84,7 @@ func LoadConfig() {
 		GoogleClientSecret: getEnv("GOOGLE_CLIENT_SECRET", ""),
 		GoogleRedirectURL:  getEnv("GOOGLE_REDIRECT_URL", "http://localhost:8080/api/auth/google/callback"), // Added with default
 
-		// Backblaze B2 - Handle multiple possible env var names
+		// Backblaze B2
 		B2ApplicationKeyID: getB2KeyID(),
 		B2ApplicationKey:   getB2AppKey(),
 		B2BucketName:       getB2BucketName(),
@@ -117,16 +116,13 @@ func LoadConfig() {
 
 // getMongoURI handles both MONGO_URI and MONGODB_URI environment variables
 func getMongoURI() string {
-	if uri := os.Getenv("MONGODB_URI"); uri != "" {
-		return uri
-	}
+
 	if uri := os.Getenv("MONGO_URI"); uri != "" {
 		return uri
 	}
 	return "mongodb://localhost:27017"
 }
 
-// getB2KeyID handles multiple possible B2 key ID environment variable names
 func getB2KeyID() string {
 	possibleKeys := []string{"B2_APPLICATION_KEY_ID", "B2_KEY_ID", "BACKBLAZE_KEY_ID"}
 	for _, key := range possibleKeys {
@@ -209,7 +205,7 @@ func validateConfig() {
 		"JWT_SECRET":            AppConfig.JWTSecret,
 		"GOOGLE_CLIENT_ID":      AppConfig.GoogleClientID,
 		"GOOGLE_CLIENT_SECRET":  AppConfig.GoogleClientSecret,
-		"GOOGLE_REDIRECT_URL":   AppConfig.GoogleRedirectURL, // Added to validation
+		"GOOGLE_REDIRECT_URL":   AppConfig.GoogleRedirectURL,
 		"B2_APPLICATION_KEY_ID": AppConfig.B2ApplicationKeyID,
 		"B2_APPLICATION_KEY":    AppConfig.B2ApplicationKey,
 		"B2_BUCKET_NAME":        AppConfig.B2BucketName,

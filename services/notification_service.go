@@ -127,7 +127,7 @@ func (s *NotificationService) sendEmail(ctx context.Context, to, subject, text, 
 
 	if resp.StatusCode >= 400 {
 		body, _ := ioutil.ReadAll(resp.Body)
-		return fmt.Errorf("Mailgun error: %s - %s", resp.Status, string(body))
+		return fmt.Errorf("mailgun error: %s - %s", resp.Status, string(body))
 	}
 
 	return nil

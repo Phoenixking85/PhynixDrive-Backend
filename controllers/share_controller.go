@@ -3,7 +3,6 @@ package controllers
 import (
 	"net/http"
 	"phynixdrive/services"
-	"strconv"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -64,7 +63,7 @@ func NewShareController(shareService *services.ShareService) *ShareController {
 	}
 }
 
-// ShareResource handles POST /api/share/
+// ShareResource
 func (sc *ShareController) ShareResource(c *gin.Context) {
 	userID, exists := c.Get("userIdStr")
 	if !exists {
@@ -118,7 +117,7 @@ func (sc *ShareController) ShareResource(c *gin.Context) {
 	})
 }
 
-// BulkShare handles POST /api/share/bulk
+// BulkShare handles
 func (sc *ShareController) BulkShare(c *gin.Context) {
 	userID, exists := c.Get("userIdStr")
 	if !exists {
@@ -192,7 +191,7 @@ func (sc *ShareController) BulkShare(c *gin.Context) {
 	c.JSON(statusCode, bulkResponse)
 }
 
-// GetSharedByMe handles GET /api/share/by-me
+// GetSharedByMe
 func (sc *ShareController) GetSharedByMe(c *gin.Context) {
 	userID, exists := c.Get("userIdStr")
 	if !exists {
@@ -227,7 +226,7 @@ func (sc *ShareController) GetSharedByMe(c *gin.Context) {
 	})
 }
 
-// GetSharedWithMe handles GET /api/share/with-me
+// GetSharedWithMe
 func (sc *ShareController) GetSharedWithMe(c *gin.Context) {
 	userID, exists := c.Get("userIdStr")
 	if !exists {
@@ -262,7 +261,7 @@ func (sc *ShareController) GetSharedWithMe(c *gin.Context) {
 	})
 }
 
-// GetAllSharedResources handles GET /api/share/all
+// GetAllSharedResources
 func (sc *ShareController) GetAllSharedResources(c *gin.Context) {
 	userID, exists := c.Get("userIdStr")
 	if !exists {
@@ -287,7 +286,7 @@ func (sc *ShareController) GetAllSharedResources(c *gin.Context) {
 	})
 }
 
-// GetResourcePermissions handles GET /api/share/:resource_type/:resource_id/permissions
+// GetResourcePermissions
 func (sc *ShareController) GetResourcePermissions(c *gin.Context) {
 	userID, exists := c.Get("userIdStr")
 	if !exists {
@@ -339,7 +338,7 @@ func (sc *ShareController) GetResourcePermissions(c *gin.Context) {
 	})
 }
 
-// RevokePermission handles DELETE /api/share/:share_id/revoke
+// RevokePermission
 func (sc *ShareController) RevokePermission(c *gin.Context) {
 	userID, exists := c.Get("userIdStr")
 	if !exists {
@@ -379,7 +378,7 @@ func (sc *ShareController) RevokePermission(c *gin.Context) {
 	})
 }
 
-// UpdatePermission handles PUT /api/share/:share_id/update
+// UpdatePermission
 func (sc *ShareController) UpdatePermission(c *gin.Context) {
 	userID, exists := c.Get("userIdStr")
 	if !exists {
@@ -456,40 +455,8 @@ func (sc *ShareController) GetShareDetails(c *gin.Context) {
 		return
 	}
 
-	// Note: This would require implementing a GetShareDetails method in ShareService
-	// For now, we'll return a placeholder response
 	c.JSON(http.StatusNotImplemented, ErrorResponse{
 		Error:   "not_implemented",
 		Message: "GetShareDetails method needs to be implemented in ShareService",
 	})
-}
-
-// Helper methods for additional functionality
-
-// GetPaginatedShares can be used for pagination support
-func (sc *ShareController) getPaginationParams(c *gin.Context) (int, int, error) {
-	page := 1
-	limit := 20
-
-	if pageStr := c.Query("page"); pageStr != "" {
-		if p, err := strconv.Atoi(pageStr); err == nil && p > 0 {
-			page = p
-		}
-	}
-
-	if limitStr := c.Query("limit"); limitStr != "" {
-		if l, err := strconv.Atoi(limitStr); err == nil && l > 0 && l <= 100 {
-			limit = l
-		}
-	}
-
-	offset := (page - 1) * limit
-	return offset, limit, nil
-}
-
-// validateResourceAccess can be used to validate user access to resources
-func (sc *ShareController) validateResourceAccess(c *gin.Context, resourceID, resourceType, userID string) bool {
-	// This would typically check if the user has access to the resource
-	// Implementation would depend on your permission system
-	return true
 }

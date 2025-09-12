@@ -17,7 +17,6 @@ import (
 )
 
 func main() {
-	// Load .env file with proper path handling (do this BEFORE config.LoadConfig)
 	loadEnvFile()
 
 	// Initialize configuration
@@ -42,7 +41,6 @@ func main() {
 		log.Fatalf("Failed to connect to MongoDB: %v", err)
 	}
 
-	// Create separate context for disconnection
 	defer func() {
 		disconnectCtx, disconnectCancel := config.CreateContext(5 * time.Second)
 		defer disconnectCancel()
@@ -130,12 +128,12 @@ func loadEnvFile() {
 
 	// Define possible .env file locations
 	envPaths := []string{
-		".env",                                   // Current directory
-		"../.env",                                // Parent directory
-		"../../.env",                             // Grandparent directory
-		"cmd/../.env",                            // If running from cmd directory
-		filepath.Join(pwd, ".env"),               // Absolute path to current dir
-		filepath.Join(filepath.Dir(pwd), ".env"), // Absolute path to parent dir
+		".env",
+		"../.env",
+		"../../.env",
+		"cmd/../.env",
+		filepath.Join(pwd, ".env"),
+		filepath.Join(filepath.Dir(pwd), ".env"),
 	}
 
 	loaded := false
@@ -164,10 +162,8 @@ func loadEnvFile() {
 	}
 
 	// Debug: Print some environment variables to verify loading
-	mongoURI := os.Getenv("MONGODB_URI")
-	if mongoURI == "" {
-		mongoURI = os.Getenv("MONGO_URI") // Check alternative name
-	}
+	mongoURI := os.Getenv("MONGO_URI")
+
 	log.Printf("MONGODB_URI/MONGO_URI set: %t", mongoURI != "")
 	log.Printf("JWT_SECRET set: %t", os.Getenv("JWT_SECRET") != "")
 	log.Printf("B2_APPLICATION_KEY_ID set: %t", os.Getenv("B2_APPLICATION_KEY_ID") != "")
@@ -175,18 +171,15 @@ func loadEnvFile() {
 	log.Printf("ALLOWED_ORIGINS value: '%s'", os.Getenv("ALLOWED_ORIGINS"))
 }
 
-// Fixed CORS middleware
 func corsMiddleware(allowedOrigins []string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		requestOrigin := c.Request.Header.Get("Origin")
 
-		// Debug logging
 		log.Printf("CORS Request - Origin: '%s', Method: %s, Path: %s", requestOrigin, c.Request.Method, c.Request.URL.Path)
 		log.Printf("CORS - Allowed Origins: %v", allowedOrigins)
 
 		var allowOrigin string
 
-		// If no allowed origins specified, allow all
 		if len(allowedOrigins) == 0 {
 			log.Printf("CORS - No allowed origins specified, allowing all")
 			allowOrigin = "*"
@@ -210,14 +203,14 @@ func corsMiddleware(allowedOrigins []string) gin.HandlerFunc {
 			// If origin not found in allowed list
 			if !found {
 				if requestOrigin == "" {
-					// No origin header (like from Postman), use first allowed
+
 					allowOrigin = allowedOrigins[0]
 					log.Printf("CORS - No origin header, using first allowed: %s", allowOrigin)
 				} else {
-					// For now, allow the requesting origin (you can change this for production)
+
 					allowOrigin = requestOrigin
 					log.Printf("CORS - Origin '%s' not in allowed list, but allowing for debugging", requestOrigin)
-					// To deny: allowOrigin = "null" // This will cause CORS to fail
+
 				}
 			}
 		}
@@ -229,7 +222,7 @@ func corsMiddleware(allowedOrigins []string) gin.HandlerFunc {
 		c.Writer.Header().Set("Access-Control-Allow-Credentials", "true")
 		c.Writer.Header().Set("Access-Control-Allow-Headers", "Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token, Authorization, accept, origin, Cache-Control, X-Requested-With")
 		c.Writer.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS, GET, PUT, PATCH, DELETE")
-		c.Writer.Header().Set("Access-Control-Max-Age", "86400") // Cache preflight for 24 hours
+		c.Writer.Header().Set("Access-Control-Max-Age", "86400")
 
 		// Handle preflight requests
 		if c.Request.Method == "OPTIONS" {

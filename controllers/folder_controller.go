@@ -23,8 +23,6 @@ func NewFolderController(folderService *services.FolderService, b2Service *servi
 	}
 }
 
-// ========== Helpers ==========
-
 // Extract and validate user ID from context
 func (fc *FolderController) getUserID(c *gin.Context) (string, error) {
 	userID, exists := c.Get("userIdStr")
@@ -67,8 +65,6 @@ func (fc *FolderController) handleError(c *gin.Context, err error, defaultMessag
 	c.JSON(statusCode, gin.H{"success": false, "message": message, "error": err.Error()})
 }
 
-// ========== Endpoints ==========
-
 // CreateFolder
 func (fc *FolderController) CreateFolder(c *gin.Context) {
 	userIDStr, err := fc.getUserID(c)
@@ -109,7 +105,7 @@ func (fc *FolderController) CreateFolder(c *gin.Context) {
 	})
 }
 
-// ListRootFolders (FIXED: now includes file_count & subfolder_count)
+// ListRootFolders
 func (fc *FolderController) ListRootFolders(c *gin.Context) {
 	userIDStr, err := fc.getUserID(c)
 	if err != nil {
@@ -126,7 +122,7 @@ func (fc *FolderController) ListRootFolders(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": folders})
 }
 
-// GetFolderContents (Google Drive style)
+// GetFolderContents
 func (fc *FolderController) GetFolderContents(c *gin.Context) {
 	userIDStr, err := fc.getUserID(c)
 	if err != nil {

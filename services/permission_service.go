@@ -36,19 +36,11 @@ func (s *PermissionService) HasResourcePermission(ctx context.Context, userID, r
 	if err == nil {
 		return ok, nil
 	}
-	// If file returned "not found", try folder
-	if err != nil && err.Error() == "file not found" {
+
+	if err.Error() == "file not found" {
 		return s.HasFolderPermission(ctx, userID, resourceID, requiredRole)
 	}
-	// If file check returned a different error, propagate (except "file not found")
-	if err != nil {
-		// if it was file not found we handled above, else return error
-		if err.Error() != "file not found" {
-			return false, err
-		}
-	}
 
-	// Fallback: try folder
 	return s.HasFolderPermission(ctx, userID, resourceID, requiredRole)
 }
 
