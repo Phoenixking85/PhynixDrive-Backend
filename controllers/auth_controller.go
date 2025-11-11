@@ -34,7 +34,6 @@ const (
 	cookieDomain    = ""
 )
 
-// GoogleAuth returns Google OAuth URL
 func (ac *AuthController) GoogleAuth(c *gin.Context) {
 	state, err := ac.authService.GenerateState()
 	if err != nil {
@@ -59,20 +58,17 @@ func (ac *AuthController) GoogleCallback(c *gin.Context) {
 	state := c.Query("state")
 	code := c.Query("code")
 
-	// Validate state
 	if !ac.authService.ValidateState(state) {
 		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "Invalid or expired authentication state"})
 		return
 	}
 
-	// Handle callback
 	_, token, err := ac.authService.HandleGoogleCallback(code)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": err.Error()})
 		return
 	}
 
-	// Redirect to frontend with token
 	redirectURL := fmt.Sprintf("%s/auth/callback?token=%s", config.AppConfig.FrontendRedirectURL, token)
 	c.Redirect(http.StatusTemporaryRedirect, redirectURL)
 }
@@ -96,7 +92,6 @@ func (ac *AuthController) OAuthLogin(c *gin.Context) {
 	})
 }
 
-// GetUserProfile retrieves the authenticated user's profile
 func (ac *AuthController) GetUserProfile(c *gin.Context) {
 	userID := ac.extractUserID(c)
 	if userID == "" {
@@ -113,12 +108,10 @@ func (ac *AuthController) GetUserProfile(c *gin.Context) {
 	utils.SuccessResponse(c, "Profile retrieved successfully", user)
 }
 
-// Logout
 func (ac *AuthController) Logout(c *gin.Context) {
 	utils.SuccessResponse(c, "Logout successful", nil)
 }
 
-// RefreshToken generates a new JWT token
 func (ac *AuthController) RefreshToken(c *gin.Context) {
 	userID := ac.extractUserID(c)
 	email := ac.extractEmail(c)
@@ -139,7 +132,6 @@ func (ac *AuthController) RefreshToken(c *gin.Context) {
 	})
 }
 
-// ValidateToken validates the current JWT token
 func (ac *AuthController) ValidateToken(c *gin.Context) {
 	userID := ac.extractUserID(c)
 	email := ac.extractEmail(c)
@@ -155,9 +147,7 @@ func (ac *AuthController) ValidateToken(c *gin.Context) {
 	})
 }
 
-// DebugStates endpoint for debugging OAuth state issues
 func (ac *AuthController) DebugStates(c *gin.Context) {
-	// This is a debug endpoint - remove in production
 	log.Printf("[AuthController] Debug states endpoint called")
 
 	utils.SuccessResponse(c, "Debug info", gin.H{

@@ -22,19 +22,17 @@ func AuthMiddleware(jwtSecret string) gin.HandlerFunc {
 		if err != nil {
 			utils.ErrorResponse(c, http.StatusUnauthorized, "Invalid or expired token", nil)
 			c.Abort()
-			return
-		}
+		return
+	}
 
-		// Validate user ID format
-		userID, err := primitive.ObjectIDFromHex(claims.UserID)
+	userID, err := primitive.ObjectIDFromHex(claims.UserID)
 		if err != nil {
 			utils.ErrorResponse(c, http.StatusUnauthorized, "Invalid user ID in token", nil)
 			c.Abort()
-			return
-		}
+		return
+	}
 
-		// Set user context
-		c.Set("userId", userID)
+	c.Set("userId", userID)
 		c.Set("userIdStr", claims.UserID)
 		c.Set("email", claims.Email)
 		c.Set("name", claims.Name)

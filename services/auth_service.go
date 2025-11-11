@@ -55,7 +55,6 @@ func NewStateManager() *StateManager {
 		states: make(map[string]StateInfo),
 	}
 
-	// Start cleanup routine
 	go sm.startCleanupRoutine()
 	return sm
 }
@@ -97,7 +96,6 @@ func (sm *StateManager) Validate(state string) bool {
 		return false
 	}
 
-	// Mark as used and remove (one-time use)
 	delete(sm.states, state)
 	log.Printf("[StateManager] State validated and removed: %s", state)
 	return true
@@ -107,7 +105,6 @@ func (sm *StateManager) GetStoredStates() map[string]StateInfo {
 	sm.mu.RLock()
 	defer sm.mu.RUnlock()
 
-	// Return a copy for debugging purposes
 	states := make(map[string]StateInfo)
 	for k, v := range sm.states {
 		states[k] = v
@@ -116,7 +113,7 @@ func (sm *StateManager) GetStoredStates() map[string]StateInfo {
 }
 
 func (sm *StateManager) startCleanupRoutine() {
-	ticker := time.NewTicker(2 * time.Minute) // More frequent cleanup for debugging
+	ticker := time.NewTicker(2 * time.Minute)
 	defer ticker.Stop()
 
 	for range ticker.C {
@@ -180,7 +177,6 @@ func NewAuthService(db *mongo.Database, jwtSecret, googleClientID, googleClientS
 		stateManager:       NewStateManager(),
 	}
 
-	// Create index on email for better performance
 	service.createIndexes()
 	log.Printf("[AuthService] Initialized with redirect URL: %s", redirectURL)
 	return service
@@ -190,25 +186,22 @@ func (s *AuthService) createIndexes() {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	// Create unique index on email
 	emailIndex := mongo.IndexModel{
 		Keys:    bson.D{{Key: "email", Value: 1}},
 		Options: options.Index().SetUnique(true),
 	}
 
-	// Create index on google_id
 	googleIDIndex := mongo.IndexModel{
 		Keys: bson.D{{Key: "google_id", Value: 1}},
 	}
 
 	_, err := s.userCollection.Indexes().CreateMany(ctx, []mongo.IndexModel{emailIndex, googleIDIndex})
 	if err != nil {
-		// Log error but don't fail - indexes might already exist
 		log.Printf("Warning: Failed to create indexes: %v", err)
 	}
 }
 
-const OAuthStateExpiration = 10 * time.Minute // Duration for which OAuth state is valid; adjust as needed
+const OAuthStateExpiration = 10 * time.Minute
 
 func (s *AuthService) GenerateState() (string, error) {
 	bytes := make([]byte, 32)
@@ -218,7 +211,6 @@ func (s *AuthService) GenerateState() (string, error) {
 
 	state := base64.RawURLEncoding.EncodeToString(bytes)
 
-	// Store with configurable expiration
 	duration := OAuthStateExpiration
 	s.stateManager.Store(state, duration)
 
@@ -229,7 +221,6 @@ func (s *AuthService) GenerateState() (string, error) {
 func (s *AuthService) ValidateState(state string) bool {
 	log.Printf("[AuthService] Validating state: %s", state)
 
-	// Debug: Show current stored states
 	stored := s.stateManager.GetStoredStates()
 	log.Printf("[AuthService] Current stored states count: %d", len(stored))
 	for storedState, info := range stored {
@@ -331,25 +322,21 @@ func (s *AuthService) ValidateGoogleIDToken(idToken string) (*GoogleTokenInfo, e
 func (s *AuthService) HandleGoogleCallback(code string) (*models.User, string, error) {
 	log.Printf("[AuthService] Handling Google callback with code: %s...", code[:10])
 
-	// Exchange code for tokens
 	tokenResponse, err := s.ExchangeCodeForTokens(code)
 	if err != nil {
 		return nil, "", err
 	}
 
-	// Validate ID token
 	googleInfo, err := s.ValidateGoogleIDToken(tokenResponse.IDToken)
 	if err != nil {
 		return nil, "", err
 	}
 
-	// Create or update user
 	user, err := s.createOrUpdateUser(googleInfo, tokenResponse.RefreshToken)
 	if err != nil {
 		return nil, "", err
 	}
 
-	// Generate JWT
 	jwtToken, err := s.GenerateJWT(user.ID.Hex(), user.Email)
 	if err != nil {
 		return nil, "", fmt.Errorf("failed to generate JWT: %w", err)
@@ -388,11 +375,9 @@ func (s *AuthService) createOrUpdateUser(googleInfo *GoogleTokenInfo, refreshTok
 
 	var user models.User
 
-	// Try to find existing user by email
 	err := s.userCollection.FindOne(ctx, bson.M{"email": googleInfo.Email}).Decode(&user)
 
 	if err == mongo.ErrNoDocuments {
-		// Create new user
 		user = models.User{
 			ID:           primitive.NewObjectID(),
 			GoogleID:     googleInfo.ID,
@@ -401,7 +386,7 @@ func (s *AuthService) createOrUpdateUser(googleInfo *GoogleTokenInfo, refreshTok
 			ProfilePic:   googleInfo.Picture,
 			Role:         "user",
 			UsedStorage:  0,
-			MaxStorage:   2 * 1024 * 1024 * 1024, // 2GB
+			MaxStorage:   2 * 1024 * 1024 * 1024,
 			RefreshToken: refreshToken,
 			CreatedAt:    time.Now(),
 			UpdatedAt:    time.Now(),
@@ -415,7 +400,6 @@ func (s *AuthService) createOrUpdateUser(googleInfo *GoogleTokenInfo, refreshTok
 	} else if err != nil {
 		return nil, fmt.Errorf("database error: %w", err)
 	} else {
-		// Update existing user
 		updateFields := bson.M{
 			"google_id":   googleInfo.ID,
 			"name":        googleInfo.Name,
@@ -436,7 +420,6 @@ func (s *AuthService) createOrUpdateUser(googleInfo *GoogleTokenInfo, refreshTok
 			return nil, fmt.Errorf("failed to update user: %w", err)
 		}
 
-		// Fetch updated user data
 		err = s.userCollection.FindOne(ctx, bson.M{"_id": user.ID}).Decode(&user)
 		if err != nil {
 			return nil, fmt.Errorf("failed to fetch updated user: %w", err)

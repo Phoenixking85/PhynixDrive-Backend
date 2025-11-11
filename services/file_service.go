@@ -40,9 +40,8 @@ func NewFileService(db *mongo.Database, folderService *FolderService, b2Service 
 	}
 }
 
-// CheckStorageQuota checks if user can upload additional files
 func (s *FileService) CheckStorageQuota(userID string, additionalSize int64) (bool, error) {
-	const maxUserStorage = 2 * 1024 * 1024 * 1024 // 2GB
+	const maxUserStorage = 2 * 1024 * 1024 * 1024
 
 	ctx := context.Background()
 	userObjID, err := primitive.ObjectIDFromHex(userID)
@@ -59,10 +58,9 @@ func (s *FileService) CheckStorageQuota(userID string, additionalSize int64) (bo
 	return user.UsedStorage+additionalSize <= maxUserStorage, nil
 }
 
-// UploadFiles handles file uploads with proper multipart form handling
 func (s *FileService) UploadFiles(userID string, files []*multipart.FileHeader, relativePaths []string) ([]models.File, error) {
-	const maxFileSize = 100 * 1024 * 1024         // 100MB
-	const maxUserStorage = 2 * 1024 * 1024 * 1024 // 2GB
+	const maxFileSize = 100 * 1024 * 1024
+	const maxUserStorage = 2 * 1024 * 1024 * 1024
 
 	if len(files) == 0 {
 		return nil, fmt.Errorf("no files to upload")
@@ -70,7 +68,6 @@ func (s *FileService) UploadFiles(userID string, files []*multipart.FileHeader, 
 
 	ctx := context.Background()
 
-	// Get user's current storage usage
 	var user models.User
 	userObjID, err := primitive.ObjectIDFromHex(userID)
 	if err != nil {
@@ -82,7 +79,6 @@ func (s *FileService) UploadFiles(userID string, files []*multipart.FileHeader, 
 		return nil, fmt.Errorf("user not found: %w", err)
 	}
 
-	// Calculate total upload size
 	var totalSize int64
 	for _, file := range files {
 		totalSize += file.Size
@@ -91,7 +87,6 @@ func (s *FileService) UploadFiles(userID string, files []*multipart.FileHeader, 
 		}
 	}
 
-	// Check total storage limit
 	if user.UsedStorage+totalSize > maxUserStorage {
 		return nil, fmt.Errorf("upload would exceed storage limit of 2GB")
 	}
@@ -99,9 +94,7 @@ func (s *FileService) UploadFiles(userID string, files []*multipart.FileHeader, 
 	var uploadedFiles []models.File
 	var uploadedSize int64
 
-	// Process each file
 	for i, fileHeader := range files {
-		// Open the file
 		file, err := fileHeader.Open()
 		if err != nil {
 			s.cleanupUploadedFiles(uploadedFiles)
@@ -109,14 +102,12 @@ func (s *FileService) UploadFiles(userID string, files []*multipart.FileHeader, 
 		}
 		defer file.Close()
 
-		// Extract folder path from relative path
 		relativePath := relativePaths[i]
 		folderPath := filepath.Dir(relativePath)
 		if folderPath == "." {
 			folderPath = ""
 		}
 
-		// Get or create folder structure
 		var folderID *primitive.ObjectID
 		if folderPath != "" {
 			folderIDStr, err := s.folderService.GetOrCreateFolderPath(folderPath, userID)
@@ -129,14 +120,12 @@ func (s *FileService) UploadFiles(userID string, files []*multipart.FileHeader, 
 			}
 		}
 
-		// Upload file to B2
 		uploadResult, err := s.b2Service.UploadFile(file, fileHeader.Filename, userID, relativePath)
 		if err != nil {
 			s.cleanupUploadedFiles(uploadedFiles)
 			return nil, fmt.Errorf("failed to upload %s to B2: %w", fileHeader.Filename, err)
 		}
 
-		// Create file metadata
 		fileDoc := models.File{
 			ID:           primitive.NewObjectID(),
 			Name:         fileHeader.Filename,
@@ -156,7 +145,6 @@ func (s *FileService) UploadFiles(userID string, files []*multipart.FileHeader, 
 			IsDeleted:    false,
 		}
 
-		// Save file metadata to database
 		_, err = s.fileCollection.InsertOne(ctx, fileDoc)
 		if err != nil {
 			s.cleanupUploadedFiles(append(uploadedFiles, fileDoc))
@@ -167,7 +155,6 @@ func (s *FileService) UploadFiles(userID string, files []*multipart.FileHeader, 
 		uploadedSize += fileHeader.Size
 	}
 
-	// Update user's storage usage
 	_, err = s.userCollection.UpdateOne(
 		ctx,
 		bson.M{"_id": userObjID},
@@ -180,12 +167,10 @@ func (s *FileService) UploadFiles(userID string, files []*multipart.FileHeader, 
 	return uploadedFiles, nil
 }
 
-// GetRootFiles gets files in the root directory (no folder)
 func (s *FileService) GetRootFiles(userID string) ([]models.File, error) {
 	return s.GetFilesByFolder(nil, userID)
 }
 
-// GetFilesByFolder gets files by folder ID (internal method)
 func (s *FileService) GetFilesByFolder(folderID *string, userID string) ([]models.File, error) {
 	ctx := context.Background()
 

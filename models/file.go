@@ -17,7 +17,7 @@ type File struct {
 	B2FileID     string              `bson:"b2_file_id" json:"b2_file_id"`
 	B2FileName   string              `bson:"b2_file_name" json:"b2_file_name"`
 	B2BucketID   string              `bson:"b2_bucket_id" json:"b2_bucket_id"`
-	RelativePath string              `bson:"relative_path" json:"relative_path"` // Original upload path
+	RelativePath string              `bson:"relative_path" json:"relative_path"`
 	Permissions  []Permission        `bson:"permissions" json:"permissions"`
 	Versions     []FileVersion       `bson:"versions" json:"versions"`
 	IsDeleted    bool                `bson:"is_deleted" json:"is_deleted"`
@@ -25,9 +25,9 @@ type File struct {
 	CreatedAt    time.Time           `bson:"created_at" json:"created_at"`
 	UpdatedAt    time.Time           `bson:"updated_at" json:"updated_at"`
 	Extension    string              `bson:"extension" json:"extension"`
-	SHA1Hash     string              `bson:"sha1_hash" json:"sha1_hash"`                     // For file integrity checks
-	ContentType  string              `bson:"content_type" json:"content_type"`               // MIME type for file handling
-	ParentID     *primitive.ObjectID `bson:"parent_id,omitempty" json:"parent_id,omitempty"` // For nested folders
+	SHA1Hash     string              `bson:"sha1_hash" json:"sha1_hash"`
+	ContentType  string              `bson:"content_type" json:"content_type"`
+	ParentID     *primitive.ObjectID `bson:"parent_id,omitempty" json:"parent_id,omitempty"`
 }
 
 type FileVersion struct {

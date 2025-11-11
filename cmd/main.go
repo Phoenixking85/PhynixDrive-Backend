@@ -19,11 +19,9 @@ import (
 func main() {
 	loadEnvFile()
 
-	// Initialize configuration
 	config.LoadConfig()
 	cfg := config.AppConfig
 
-	// Add CORS debug logging
 	log.Printf("=== CORS Configuration Debug ===")
 	log.Printf("AllowedOrigins: %v", cfg.AllowedOrigins)
 	log.Printf("AllowedOrigins length: %d", len(cfg.AllowedOrigins))
@@ -32,7 +30,6 @@ func main() {
 	}
 	log.Printf("=== End CORS Debug ===")
 
-	// Initialize MongoDB client
 	ctx, cancel := config.CreateContext(10 * time.Second)
 	defer cancel()
 
@@ -49,14 +46,12 @@ func main() {
 		}
 	}()
 
-	// Verify MongoDB connection
 	if err = mongoClient.Ping(ctx, nil); err != nil {
 		log.Fatalf("Failed to ping MongoDB: %v", err)
 	}
 
 	log.Println("Connected to MongoDB successfully")
 
-	// Initialize Backblaze B2 service
 	b2Config := routes.B2Config{
 		KeyID:          cfg.B2ApplicationKeyID,
 		ApplicationKey: cfg.B2ApplicationKey,
@@ -69,7 +64,6 @@ func main() {
 		RedirectURL:  cfg.GoogleRedirectURL,
 	}
 
-	// Initialize services container
 	serviceContainer, err := routes.NewServiceContainer(
 		mongoClient.Database(cfg.DatabaseName),
 		cfg.JWTSecret,
@@ -80,17 +74,12 @@ func main() {
 		log.Fatalf("Failed to initialize services: %v", err)
 	}
 
-	// Set up Gin router
 	router := gin.Default()
-
-	// Set up CORS with fixed middleware
 	router.Use(corsMiddleware(cfg.AllowedOrigins))
 
-	// Set up API routes
 	api := router.Group("/api")
 	routes.SetupRoutesWithContainer(api, serviceContainer)
 
-	// Health check endpoint
 	router.GET("/health", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{
 			"status": "ok",
@@ -98,7 +87,6 @@ func main() {
 		})
 	})
 
-	// Start the cron job for trash cleanup
 	if cfg.TrashCleanupInterval > 0 {
 		trashService := services.NewTrashService(
 			mongoClient.Database(cfg.DatabaseName),
@@ -108,16 +96,13 @@ func main() {
 		log.Printf("Started trash cleanup job running every %v", cfg.TrashCleanupInterval)
 	}
 
-	// Start the server
 	log.Printf("Starting PhynixDrive server on port %s", cfg.Port)
 	if err := router.Run(":" + cfg.Port); err != nil {
 		log.Fatalf("Failed to start server: %v", err)
 	}
 }
 
-// loadEnvFile handles loading .env file from multiple possible locations
 func loadEnvFile() {
-	// Get current working directory
 	pwd, err := os.Getwd()
 	if err != nil {
 		log.Printf("Could not get working directory: %v", err)
@@ -126,7 +111,6 @@ func loadEnvFile() {
 
 	log.Printf("Current working directory: %s", pwd)
 
-	// Define possible .env file locations
 	envPaths := []string{
 		".env",
 		"../.env",
@@ -161,7 +145,6 @@ func loadEnvFile() {
 		}
 	}
 
-	// Debug: Print some environment variables to verify loading
 	mongoURI := os.Getenv("MONGO_URI")
 
 	log.Printf("MONGODB_URI/MONGO_URI set: %t", mongoURI != "")
@@ -184,7 +167,6 @@ func corsMiddleware(allowedOrigins []string) gin.HandlerFunc {
 			log.Printf("CORS - No allowed origins specified, allowing all")
 			allowOrigin = "*"
 		} else {
-			// Check if request origin is in allowed list
 			found := false
 			for _, allowedOrigin := range allowedOrigins {
 				if allowedOrigin == "*" {
@@ -200,31 +182,25 @@ func corsMiddleware(allowedOrigins []string) gin.HandlerFunc {
 				}
 			}
 
-			// If origin not found in allowed list
 			if !found {
 				if requestOrigin == "" {
-
 					allowOrigin = allowedOrigins[0]
 					log.Printf("CORS - No origin header, using first allowed: %s", allowOrigin)
 				} else {
-
 					allowOrigin = requestOrigin
 					log.Printf("CORS - Origin '%s' not in allowed list, but allowing for debugging", requestOrigin)
-
 				}
 			}
 		}
 
 		log.Printf("CORS - Setting Access-Control-Allow-Origin to: %s", allowOrigin)
 
-		// Set CORS headers
 		c.Writer.Header().Set("Access-Control-Allow-Origin", allowOrigin)
 		c.Writer.Header().Set("Access-Control-Allow-Credentials", "true")
 		c.Writer.Header().Set("Access-Control-Allow-Headers", "Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token, Authorization, accept, origin, Cache-Control, X-Requested-With")
 		c.Writer.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS, GET, PUT, PATCH, DELETE")
 		c.Writer.Header().Set("Access-Control-Max-Age", "86400")
 
-		// Handle preflight requests
 		if c.Request.Method == "OPTIONS" {
 			log.Printf("CORS - Handling OPTIONS preflight request")
 			c.AbortWithStatus(http.StatusNoContent)

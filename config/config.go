@@ -12,46 +12,36 @@ import (
 )
 
 type Config struct {
-	// Server
 	Port string
 	Env  string
 
-	// Database
 	MongoURI     string
 	DatabaseName string
 
-	// Frontend redirect URL
-	FrontendRedirectURL string // Added missing field
+	FrontendRedirectURL string
 
-	// JWT
 	JWTSecret     string
 	JWTExpiration time.Duration
 
-	// Google OAuth
 	GoogleClientID     string
 	GoogleClientSecret string
-	GoogleRedirectURL  string // Added missing field
+	GoogleRedirectURL  string
 
-	// Backblaze B2
 	B2ApplicationKeyID string
 	B2ApplicationKey   string
 	B2BucketName       string
 	B2BucketID         string
 
-	// Storage Limits
-	MaxFileSize    int64 // 100MB in bytes
-	MaxUserStorage int64 // 2GB in bytes
+	MaxFileSize    int64
+	MaxUserStorage int64
 
-	// Email Service
 	MailgunAPIKey  string
 	MailgunDomain  string
 	SendGridAPIKey string
 	FromEmail      string
 
-	// Cron Settings
 	TrashCleanupInterval time.Duration
 
-	// CORS
 	AllowedOrigins []string
 
 	JWTIssuer string
@@ -61,62 +51,46 @@ var AppConfig *Config
 var DB *mongo.Database
 
 func LoadConfig() {
-
 	AppConfig = &Config{
-		// Server
 		Port: getEnv("PORT", "8080"),
 		Env:  getEnv("ENV", "development"),
 
-		// Database
 		MongoURI:     getMongoURI(),
 		DatabaseName: getEnv("DATABASE_NAME", "phynixdrive"),
 
-		// JWT
 		JWTSecret:     getEnv("JWT_SECRET", "your-super-secret-jwt-key"),
 		JWTExpiration: parseDuration(getEnv("JWT_EXPIRATION", "24h")),
 		JWTIssuer:     getEnv("JWT_ISSUER", "phynixdrive"),
 
-		//frontend redirect URL
 		FrontendRedirectURL: getEnv("FRONTEND_REDIRECT_URL", ""),
 
-		// Google OAuth
 		GoogleClientID:     getEnv("GOOGLE_CLIENT_ID", ""),
 		GoogleClientSecret: getEnv("GOOGLE_CLIENT_SECRET", ""),
-		GoogleRedirectURL:  getEnv("GOOGLE_REDIRECT_URL", "http://localhost:8080/api/auth/google/callback"), // Added with default
+		GoogleRedirectURL:  getEnv("GOOGLE_REDIRECT_URL", "http://localhost:8080/api/auth/google/callback"),
 
-		// Backblaze B2
 		B2ApplicationKeyID: getB2KeyID(),
 		B2ApplicationKey:   getB2AppKey(),
 		B2BucketName:       getB2BucketName(),
 		B2BucketID:         getEnv("B2_BUCKET_ID", ""),
 
-		// Storage Limits
-		MaxFileSize:    parseInt64(getEnv("MAX_FILE_SIZE", "104857600")),     // 100MB
-		MaxUserStorage: parseInt64(getEnv("MAX_USER_STORAGE", "2147483648")), // 2GB
+		MaxFileSize:    parseInt64(getEnv("MAX_FILE_SIZE", "104857600")),
+		MaxUserStorage: parseInt64(getEnv("MAX_USER_STORAGE", "2147483648")),
 
-		// Email Service
 		MailgunAPIKey:  getEnv("MAILGUN_API_KEY", ""),
 		MailgunDomain:  getEnv("MAILGUN_DOMAIN", ""),
 		SendGridAPIKey: getEnv("SENDGRID_API_KEY", ""),
 		FromEmail:      getEnv("FROM_EMAIL", "noreply@phynixdrive.com"),
 
-		// Cron Settings
 		TrashCleanupInterval: parseDuration(getEnv("TRASH_CLEANUP_INTERVAL", "24h")),
 
-		// CORS
 		AllowedOrigins: parseStringSlice(getEnv("ALLOWED_ORIGINS", "http://localhost:3000,http://localhost:5173")),
 	}
 
-	// Log loaded configuration (without sensitive data)
 	logConfig()
-
-	// Validate required fields
 	validateConfig()
 }
 
-// getMongoURI handles both MONGO_URI and MONGODB_URI environment variables
 func getMongoURI() string {
-
 	if uri := os.Getenv("MONGO_URI"); uri != "" {
 		return uri
 	}
@@ -133,7 +107,6 @@ func getB2KeyID() string {
 	return ""
 }
 
-// getB2AppKey handles multiple possible B2 app key environment variable names
 func getB2AppKey() string {
 	possibleKeys := []string{"B2_APPLICATION_KEY", "B2_APP_KEY", "BACKBLAZE_APP_KEY"}
 	for _, key := range possibleKeys {
@@ -144,7 +117,6 @@ func getB2AppKey() string {
 	return ""
 }
 
-// getB2BucketName handles multiple possible B2 bucket name environment variable names
 func getB2BucketName() string {
 	possibleKeys := []string{"B2_BUCKET_NAME", "B2_BUCKET", "BACKBLAZE_BUCKET"}
 	for _, key := range possibleKeys {
@@ -164,7 +136,7 @@ func logConfig() {
 	log.Printf("  JWT Secret: %s", maskSecret(AppConfig.JWTSecret))
 	log.Printf("  JWT Expiration: %v", AppConfig.JWTExpiration)
 	log.Printf("  Google Client ID: %s", maskSecret(AppConfig.GoogleClientID))
-	log.Printf("  Google Redirect URL: %s", AppConfig.GoogleRedirectURL) // Added logging
+	log.Printf("  Google Redirect URL: %s", AppConfig.GoogleRedirectURL)
 	log.Printf("  B2 Key ID: %s", maskSecret(AppConfig.B2ApplicationKeyID))
 	log.Printf("  B2 Bucket: %s", AppConfig.B2BucketName)
 	log.Printf("  Max File Size: %d bytes", AppConfig.MaxFileSize)
@@ -187,7 +159,6 @@ func maskConnectionString(uri string) string {
 	if uri == "" {
 		return "[NOT SET]"
 	}
-	// Simple masking for connection strings
 	if strings.Contains(uri, "@") {
 		parts := strings.Split(uri, "@")
 		if len(parts) >= 2 {
@@ -257,7 +228,6 @@ func parseStringSlice(s string) []string {
 		return []string{}
 	}
 
-	// Use standard library instead of custom functions
 	parts := strings.Split(s, ",")
 	var result []string
 	for _, part := range parts {

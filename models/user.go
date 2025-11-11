@@ -13,12 +13,12 @@ type User struct {
 	Name         string             `bson:"name" json:"name"`
 	ProfilePic   string             `bson:"profile_pic" json:"profile_pic"`
 	Role         string             `bson:"role" json:"role"`
-	UsedStorage  int64              `bson:"used_storage" json:"used_storage"` // in bytes
-	MaxStorage   int64              `bson:"max_storage" json:"max_storage"`   // 2GB default
+	UsedStorage  int64              `bson:"used_storage" json:"used_storage"`
+	MaxStorage   int64              `bson:"max_storage" json:"max_storage"`
 	CreatedAt    time.Time          `bson:"created_at" json:"created_at"`
 	UpdatedAt    time.Time          `bson:"updated_at" json:"updated_at"`
 	RefreshToken string             `json:"refresh_token,omitempty" bson:"refresh_token,omitempty"`
-	FirstName    string             `bson:"first_name,omitempty" json:"first_name,omitempty"` // Denormalized for quick access
-	LastName     string             `bson:"last_name,omitempty" json:"last_name,omitempty"`   // Denormalized for quick access
+	FirstName    string             `bson:"first_name,omitempty" json:"first_name,omitempty"`
+	LastName     string             `bson:"last_name,omitempty" json:"last_name,omitempty"`
 
 }

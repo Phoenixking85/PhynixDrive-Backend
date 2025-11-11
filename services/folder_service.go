@@ -17,7 +17,6 @@ import (
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
-// FileInfo represents file information with preview/download endpoints
 type FileInfo struct {
 	ID               primitive.ObjectID `json:"id"`
 	Name             string             `json:"name"`
@@ -29,7 +28,6 @@ type FileInfo struct {
 	DownloadEndpoint string             `json:"download_endpoint"`
 }
 
-// FolderContentsResponse represents the response for GetFolderContents
 type FolderContentsResponse struct {
 	Folder     FolderInfo      `json:"folder"`
 	Subfolders []SubfolderInfo `json:"subfolders"`
@@ -87,17 +85,14 @@ func NewFolderService(db *mongo.Database, permissionService *PermissionService, 
 	}
 }
 
-// GetFolderContents retrieves folder contents in Google Drive style (subfolders + files in single view)
 func (s *FolderService) GetFolderContents(folderID, userID string) (*FolderContentsResponse, error) {
 	ctx := context.Background()
 
-	// Validate folder ID
 	folderObjID, err := primitive.ObjectIDFromHex(folderID)
 	if err != nil {
 		return nil, fmt.Errorf("invalid folder ID: %w", err)
 	}
 
-	// Check permissions - viewer level minimum
 	if s.permissionService != nil {
 		hasPermission, err := s.permissionService.HasFolderPermission(ctx, userID, folderID, "viewer")
 		if err != nil {
@@ -108,7 +103,6 @@ func (s *FolderService) GetFolderContents(folderID, userID string) (*FolderConte
 		}
 	}
 
-	// Get folder metadata
 	var folder models.Folder
 	err = s.folderCollection.FindOne(ctx, bson.M{
 		"_id":        folderObjID,
@@ -121,7 +115,6 @@ func (s *FolderService) GetFolderContents(folderID, userID string) (*FolderConte
 		return nil, fmt.Errorf("database error: %w", err)
 	}
 
-	// Determine user permissions for this folder
 	canEdit := false
 	canShare := false
 	if s.permissionService != nil {
@@ -129,19 +122,16 @@ func (s *FolderService) GetFolderContents(folderID, userID string) (*FolderConte
 		canShare, _ = s.permissionService.HasFolderPermission(ctx, userID, folderID, "admin")
 	}
 
-	// Get direct child subfolders
 	subfolders, err := s.getSubfoldersWithCounts(ctx, folderObjID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get subfolders: %w", err)
 	}
 
-	// Get files in folder with preview/download endpoints
 	files, err := s.getFilesWithEndpoints(ctx, folderObjID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get files: %w", err)
 	}
 
-	// Build response
 	response := &FolderContentsResponse{
 		Folder: FolderInfo{
 			ID:       folder.ID,
@@ -162,9 +152,7 @@ func (s *FolderService) GetFolderContents(folderID, userID string) (*FolderConte
 	return response, nil
 }
 
-// getSubfoldersWithCounts gets direct child subfolders with file counts
 func (s *FolderService) getSubfoldersWithCounts(ctx context.Context, parentID primitive.ObjectID) ([]SubfolderInfo, error) {
-	// Get subfolders
 	cursor, err := s.folderCollection.Find(ctx, bson.M{
 		"parent_id":  parentID,
 		"is_deleted": false,
@@ -182,13 +170,12 @@ func (s *FolderService) getSubfoldersWithCounts(ctx context.Context, parentID pr
 			continue
 		}
 
-		// Count files in this subfolder
 		fileCount, err := s.fileCollection.CountDocuments(ctx, bson.M{
 			"folder_id":  folder.ID,
 			"deleted_at": nil,
 		})
 		if err != nil {
-			fileCount = 0 // Continue with 0 count on error
+			fileCount = 0
 		}
 
 		subfolders = append(subfolders, SubfolderInfo{
