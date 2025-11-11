@@ -4,10 +4,11 @@ import (
 	"fmt"
 	"mime/multipart"
 	"path/filepath"
-	"phynixdrive/config"
 	"regexp"
 	"strings"
 	"unicode/utf8"
+
+	"phynixdrive/config"
 )
 
 func ValidateFileSize(size int64) error {
@@ -89,7 +90,6 @@ func ValidateFolderName(name string) error {
 func ValidateRelativePath(path string) error {
 	if path == "" {
 		return nil
-	}
 	}
 
 	path = strings.ReplaceAll(path, "\\", "/")
