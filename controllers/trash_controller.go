@@ -205,7 +205,7 @@ func (tc *TrashController) PurgeAllTrash(c *gin.Context) {
 		return
 	}
 
-	// Optional confirmation parameter
+	
 	confirm := c.Query("confirm")
 	if confirm != "true" {
 		utils.ErrorResponse(c, http.StatusBadRequest, "Confirmation required: add ?confirm=true to purge all items", nil)

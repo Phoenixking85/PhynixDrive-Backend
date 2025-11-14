@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"mime/multipart"
 	"path/filepath"
-	"phynixdrive/models"
 	"strings"
 	"time"
 
@@ -13,6 +12,8 @@ import (
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
+
+	"phynixdrive/models"
 )
 
 type FileService struct {
@@ -252,8 +253,6 @@ func (s *FileService) GetFileByID(fileID string, userID string) (*models.File, e
 
 	return &file, nil
 }
-
-// Add these methods to your FileService struct
 
 // GetDownloadURL generates a download URL with longer expiry
 func (s *FileService) GetDownloadURL(fileID string, userID string) (string, error) {

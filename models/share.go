@@ -9,19 +9,19 @@ import (
 // Share represents a sharing relationship between users and resources
 type Share struct {
 	ID           primitive.ObjectID `bson:"_id" json:"id"`
-	ResourceID   string             `bson:"resource_id" json:"resource_id"`     // ID of the shared resource
-	ResourceType string             `bson:"resource_type" json:"resource_type"` // "file" or "folder"
-	SharedWith   string             `bson:"shared_with" json:"shared_with"`     // User ID who receives access
-	SharedBy     string             `bson:"shared_by" json:"shared_by"`         // User ID who granted access
-	Role         string             `bson:"role" json:"role"`                   // "viewer", "editor", "admin"
+	ResourceID   string             `bson:"resource_id" json:"resource_id"`     
+	ResourceType string             `bson:"resource_type" json:"resource_type"` 
+	SharedWith   string             `bson:"shared_with" json:"shared_with"`     
+	SharedBy     string             `bson:"shared_by" json:"shared_by"`         
+	Role         string             `bson:"role" json:"role"`                   
 	SharedAt     time.Time          `bson:"shared_at" json:"shared_at"`
 	IsActive     bool               `bson:"is_active" json:"is_active"`
 	RevokedAt    *time.Time         `bson:"revoked_at,omitempty" json:"revoked_at,omitempty"`
 	RevokedBy    string             `bson:"revoked_by,omitempty" json:"revoked_by,omitempty"`
 	UpdatedAt    *time.Time         `bson:"updated_at,omitempty" json:"updated_at,omitempty"`
 	UpdatedBy    string             `bson:"updated_by,omitempty" json:"updated_by,omitempty"`
-	FirstName    string             `bson:"first_name,omitempty" json:"first_name,omitempty"` // Denormalized for quick access
-	LastName     string             `bson:"last_name,omitempty" json:"last_name,omitempty"`   // Denormalized for quick access
+	FirstName    string             `bson:"first_name,omitempty" json:"first_name,omitempty"` 
+	LastName     string             `bson:"last_name,omitempty" json:"last_name,omitempty"`   
 }
 
 // ShareActivity represents sharing activity logs
